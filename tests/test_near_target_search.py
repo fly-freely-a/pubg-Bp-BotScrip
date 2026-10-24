@@ -78,9 +78,22 @@ class NearTargetSearchTests(unittest.TestCase):
         stop.assert_called_once()
 
     def test_above_eight_pixels_keeps_approaching(self):
-        _, _, set_key, stop = self.replay(8.1)
-        stop.assert_not_called()
+        _, inputs, set_key, stop = self.replay(8.1)
+        stop.assert_called_once()
         set_key.assert_any_call('w', True)
+        self.assertEqual(set_key.call_args_list[-1].args, ('w', False))
+        inputs.press.assert_not_called()
+
+    def test_fifteen_pixels_uses_short_forward_pulse(self):
+        _, inputs, set_key, stop = self.replay(15.0)
+        stop.assert_called_once()
+        self.assertEqual([c.args for c in set_key.call_args_list], [('w', True), ('w', False)])
+        inputs.press.assert_not_called()
+
+    def test_unknown_marker_distance_does_not_run_blindly(self):
+        _, _, set_key, stop = self.replay(None)
+        stop.assert_called_once()
+        set_key.assert_not_called()
 
 
 if __name__ == '__main__':
