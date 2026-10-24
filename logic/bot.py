@@ -735,6 +735,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # 动态加载交互 UI 资源
         f_path = os.path.join(self.image_dir, 'F_2026-10-24.png')
         f_tmpl = cv2.imread(f_path) if os.path.exists(f_path) else None
+        if f_tmpl is not None:
+            # 该82×82模板在1920×1080现场截图中的实际图标约29×29。
+            f_tmpl = cv2.resize(f_tmpl, None, fx=0.35, fy=0.35)
         print(f"🔎 [开门诊断] F模板已加载:{f_tmpl is not None} 路径:{f_path} "
               f"尺寸:{f_tmpl.shape[:2] if f_tmpl is not None else None}")
         last_door_diagnostic = 0.0
