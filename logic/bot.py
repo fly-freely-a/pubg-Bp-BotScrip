@@ -39,7 +39,7 @@ from ultralytics import YOLO
 
 from config import Config
 from core.mixins import WindowMixin, VisionMixin, MathMixin, ActionMixin
-from core.door_diagnostics import DoorDiagnosticRecorder
+# from core.door_diagnostics import DoorDiagnosticRecorder  # 截图诊断暂时停用
 
 
 class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
@@ -741,11 +741,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         print(f"🔎 [开门诊断] F模板已加载:{f_tmpl is not None} 路径:{f_path} "
               f"尺寸:{f_tmpl.shape[:2] if f_tmpl is not None else None}")
         last_door_diagnostic = 0.0
-        last_door_snapshot = 0.0
-        diagnostic_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                      'debug', 'door_interaction')
-        door_recorder = DoorDiagnosticRecorder(diagnostic_dir)
-        print(f"📷 [开门诊断] 接近门时最多每0.25秒采样一次，按时间戳保存至 {diagnostic_dir}")
+        # last_door_snapshot = 0.0
+        # diagnostic_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+        #                               'debug', 'door_interaction')
+        # door_recorder = DoorDiagnosticRecorder(diagnostic_dir)
+        # print(f"📷 [开门诊断] 接近门时最多每0.25秒采样一次，按时间戳保存至 {diagnostic_dir}")
 
         door_path = os.path.join(self.image_dir, 'door.png')
         door3_path = os.path.join(self.image_dir, 'door3.png')
@@ -845,7 +845,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     break
 
                 game_img, current_window_info = self.capture_game_screen()
-                frame_captured_at = time.time()
+                # frame_captured_at = time.time()  # 截图诊断暂时停用
                 if game_img is None: time.sleep(0.05); continue
 
                 current_f_score = 0.0
@@ -922,15 +922,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             print(f"\n🔎 [开门诊断] F得分:{current_f_score:.4f} 阈值:>0.72 "
                                   f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
                             last_door_diagnostic = time.time()
-                        # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
-                        if frame_captured_at - last_door_snapshot >= 0.25:
-                            metadata = dict(state=bot_state, f_score=float(current_f_score),
-                                            f_threshold=0.72, template_loaded=f_tmpl is not None,
-                                            has_aligned_door=bool(has_aligned_door),
-                                            ignore_f=bool(ignore_f), reason=reason,
-                                            marker_distance=dist, captured_at=frame_captured_at)
-                            if door_recorder.submit(game_img, metadata):
-                                last_door_snapshot = frame_captured_at
+                        # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
+                        # if frame_captured_at - last_door_snapshot >= 0.25:
+                        #     metadata = dict(state=bot_state, f_score=float(current_f_score),
+                        #                     f_threshold=0.72, template_loaded=f_tmpl is not None,
+                        #                     has_aligned_door=bool(has_aligned_door),
+                        #                     ignore_f=bool(ignore_f), reason=reason,
+                        #                     marker_distance=dist, captured_at=frame_captured_at)
+                        #     if door_recorder.submit(game_img, metadata):
+                        #         last_door_snapshot = frame_captured_at
                     if current_f_score > 0.72 and not ignore_f:
                         print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 强行打断动作，进入核验！")
                         stop_all()
@@ -1635,10 +1635,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             import traceback
             print(f"\n❌ 地面执行发生严重错误:\n{traceback.format_exc()}")
         finally:
-            try:
-                stop_all()
-            finally:
-                door_recorder.close()
+            stop_all()
+            # door_recorder.close()  # 截图诊断暂时停用
             print("\n🏁 自动地面突击序列彻底结束，所有按键已释放。")
 
     # ----------------------------------------------------------------------
