@@ -840,6 +840,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         bot_state = "COMPASS_RUSH"
         entered_target_zone = False
+        target_zone_exit_count = 0
 
         last_action_log = ""
         self.last_ai_print = time.time()
@@ -933,19 +934,26 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 continue
 
                     if dist <= 15.0:
+                        target_zone_exit_count = 0
                         if not entered_target_zone:
                             print("\n📍 进入标点15px范围，启用YOLO视觉。")
                             entered_target_zone = True
-                    elif dist > 15.0:
+                    elif dist > 30.0:
                         if entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
-                            print(f"\n🚨 [电子围栏报警] 偏离标点过远 ({dist:.1f}px > 15px)！判定为追错目标或迷失！")
-                            print("🚨 强行关闭 YOLO 视觉，退回罗盘导航重新拉回目标点...")
-                            entered_target_zone = False
-                            stop_all()
-                            bot_state = "COMPASS_RUSH"
-                            dist_history.clear()
-                            global_progress_time = time.time()
-                            continue
+                            target_zone_exit_count += 1
+                            if target_zone_exit_count >= 3:
+                                print(f"\n🚨 [电子围栏报警] 连续3次距离超过30px (当前:{dist:.1f}px)，退回罗盘导航。")
+                                entered_target_zone = False
+                                target_zone_exit_count = 0
+                                stop_all()
+                                bot_state = "COMPASS_RUSH"
+                                dist_history.clear()
+                                global_progress_time = time.time()
+                                continue
+                        else:
+                            target_zone_exit_count = 0
+                    else:
+                        target_zone_exit_count = 0
 
                 # ==========================================
                 # 全局智能 F 交互拦截器

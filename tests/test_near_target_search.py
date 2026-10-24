@@ -6,26 +6,27 @@ from unittest.mock import Mock
 
 
 class NearTargetSearchTests(unittest.TestCase):
-    def test_visual_zone_and_fence_use_fifteen_pixel_boundary(self):
+    def test_visual_zone_does_not_toggle_with_boundary_noise(self):
         path = Path(__file__).resolve().parents[1] / 'logic' / 'bot.py'
         tree = ast.parse(path.read_text(encoding='utf-8'))
         zone = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
                     and ast.unparse(n.test) == 'dist <= 15.0')
-        for distance, was_inside, expected in ((14.9, False, True),
-                                               (15.0, False, True),
-                                               (15.1, False, False),
-                                               (15.1, True, False)):
-            with self.subTest(distance=distance, was_inside=was_inside):
-                # 外围退出分支包含 continue，包进一轮循环执行真实代码。
-                loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()),
-                               iter=ast.Tuple(elts=[ast.Constant(0)], ctx=ast.Load()),
-                               body=[zone], orelse=[])
-                module = ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[]))
-                namespace = dict(dist=distance, entered_target_zone=was_inside,
-                                 bot_state='COMPASS_RUSH', stop_all=Mock(), dist_history=[],
-                                 time=SimpleNamespace(time=lambda: 100.0))
-                exec(compile(module, str(path), 'exec'), namespace)
+        loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()),
+                       iter=ast.Tuple(elts=[ast.Constant(0)], ctx=ast.Load()),
+                       body=[zone], orelse=[])
+        module = ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[]))
+        code = compile(module, str(path), 'exec')
+        namespace = dict(entered_target_zone=False, target_zone_exit_count=0,
+                         bot_state='COMPASS_RUSH', stop_all=Mock(), dist_history=[],
+                         time=SimpleNamespace(time=lambda: 100.0))
+        for distance, expected in ((15.1, False), (15.0, True), (23.4, True),
+                                    (16.3, True), (31.0, True), (20.0, True),
+                                    (31.0, True), (31.0, True), (31.0, False)):
+            with self.subTest(distance=distance):
+                namespace['dist'] = distance
+                exec(code, namespace)
                 self.assertEqual(namespace['entered_target_zone'], expected)
+        namespace['stop_all'].assert_called_once()
 
     def replay(self, distance):
         path = Path(__file__).resolve().parents[1] / 'logic' / 'bot.py'
@@ -44,7 +45,7 @@ class NearTargetSearchTests(unittest.TestCase):
         module = ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[]))
         controller = SimpleNamespace(find_target_on_compass=Mock(return_value=960),
                                      rotate_mouse_raw=Mock(), last_scrape_time=0,
-                                     near_target_search_distance=5.0)
+                                     near_target_search_distance=8.0)
         inputs = SimpleNamespace(press=Mock())
         set_key = Mock()
         stop = Mock()
@@ -60,7 +61,7 @@ class NearTargetSearchTests(unittest.TestCase):
         return controller, inputs, set_key, stop
 
     def test_near_marker_without_visual_target_scans_instead_of_running_or_jumping(self):
-        controller, inputs, set_key, stop = self.replay(5.0)
+        controller, inputs, set_key, stop = self.replay(8.0)
         stop.assert_called_once()
         controller.rotate_mouse_raw.assert_called_once()
         set_key.assert_not_called()
@@ -73,11 +74,11 @@ class NearTargetSearchTests(unittest.TestCase):
         set_key.assert_any_call('w', True)
 
     def test_search_starts_at_configured_boundary(self):
-        _, _, _, stop = self.replay(5.0)
+        _, _, _, stop = self.replay(8.0)
         stop.assert_called_once()
 
-    def test_above_five_pixels_keeps_approaching(self):
-        _, _, set_key, stop = self.replay(5.1)
+    def test_above_eight_pixels_keeps_approaching(self):
+        _, _, set_key, stop = self.replay(8.1)
         stop.assert_not_called()
         set_key.assert_any_call('w', True)
 
