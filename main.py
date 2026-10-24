@@ -3,6 +3,7 @@ import time
 import keyboard
 import ctypes
 import pyautogui
+import pydirectinput
 import sys
 
 # 💡 强制声明 DPI 感知，完美解决屏幕缩放导致的截图抓瞎问题！
@@ -12,6 +13,7 @@ except Exception:
     pass
 
 pyautogui.FAILSAFE = False
+pydirectinput.FAILSAFE = False
 
 # 导入业务机器人类
 from logic.bot import PUBGSmartMarkerV9
