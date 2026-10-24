@@ -10,6 +10,7 @@ class Config:
     REF_HEIGHT = 1000
     MAP_SIZE = 1050
     JUMP_DISTANCE_THRESHOLD = 150
+    NEAR_TARGET_SEARCH_DISTANCE = 5.0  # 归一化截图中小地图像素距离，非游戏米数
     SECONDARY_PASSWORD = "131932"  # 例如"你的二级密码"
     # --- 精确跳伞点位 ---
     TARGET_POINTS = [

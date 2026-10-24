@@ -55,6 +55,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.ref_height = Config.REF_HEIGHT
         self.MAP_SIZE = Config.MAP_SIZE
         self.jump_distance_threshold = Config.JUMP_DISTANCE_THRESHOLD
+        self.near_target_search_distance = Config.NEAR_TARGET_SEARCH_DISTANCE
         self.target_points = Config.TARGET_POINTS.copy()
         self.thresholds = Config.THRESHOLDS.copy()
         self.secondary_password = getattr(Config, 'SECONDARY_PASSWORD', "131932")
@@ -931,7 +932,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                     if dist <= 30.0:
                         if not entered_target_zone:
-                            print("\n📍 已抵达目标 20px 核心区！正式激活【YOLO视觉】逻辑！")
+                            print("\n📍 进入标点30px范围，启用YOLO视觉；尚未达到停步搜索距离。")
                             entered_target_zone = True
                     elif dist > 30.0:
                         if entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
@@ -1063,7 +1064,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 if bot_state == "COMPASS_RUSH":
                     # 已到标点却没有有效视觉目标：停步搜索，不继续撞向黄点或随机跳跃。
                     # 有效目标已在上方切换到 RUNNING / APPROACH_DOOR 并 continue。
-                    if entered_target_zone and dist is not None and dist <= 30.0:
+                    if entered_target_zone and dist is not None and dist <= self.near_target_search_distance:
                         stop_all()
                         if time.time() - last_target_search_log > 2.0:
                             print(f"\n🔎 [近点搜索] 距标点:{dist:.1f}px 模型已加载:{self.yolo_model is not None} "
@@ -1082,7 +1083,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             except Exception as e:
                                 print(f"\n⚠️ 保存近点搜索截图失败: {e}")
                             last_target_search_snapshot = time.time()
-                        self.rotate_mouse_raw(150, 0)
+                        self.rotate_mouse_raw(300, 0)
                         continue
                     tx_compass = self.find_target_on_compass(game_img)
                     if tx_compass is not None:
