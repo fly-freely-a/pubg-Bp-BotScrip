@@ -39,6 +39,7 @@ from ultralytics import YOLO
 
 from config import Config
 from core.mixins import WindowMixin, VisionMixin, MathMixin, ActionMixin
+from core.interaction import InteractionPromptMatcher
 
 
 class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
@@ -756,8 +757,14 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         print("=" * 60)
 
         # 动态加载交互 UI 资源
-        f_path = os.path.join(self.image_dir, 'f.png')
-        f_tmpl = cv2.imread(f_path) if os.path.exists(f_path) else None
+        f_tmpl = self._load_img('F.png')
+        if f_tmpl is None:
+            self.stop_all_movement()
+            raise RuntimeError('无法加载 F.png，请将 Config.IMAGE_DIR 指向项目 image 目录')
+        f_matcher = InteractionPromptMatcher(f_tmpl)
+        f_threshold = 0.72
+        last_prompt_log = 0.0
+        last_prompt_snapshot = 0.0
 
         door_path = os.path.join(self.image_dir, 'door.png')
         door3_path = os.path.join(self.image_dir, 'door3.png')
@@ -859,10 +866,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 game_img, current_window_info = self.capture_game_screen()
                 if game_img is None: time.sleep(0.05); continue
 
-                current_f_score = 0.0
-                if f_tmpl is not None:
-                    res_f = cv2.matchTemplate(game_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
-                    current_f_score = cv2.minMaxLoc(res_f)[1]
+                current_f_score, f_box, f_scale = f_matcher.match(game_img)
 
                 if self.handle_endgame(game_img, current_window_info):
                     self.has_marked_this_match = False
@@ -923,9 +927,38 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if time.time() - global_last_door_time > 3:
                             ignore_f = True
 
-                    if bot_state == "APPROACH_DOOR" and not has_aligned_door:
+                    # 门旁已经出现 F 提示时，不再等待门框宽高比达标。
+                    if bot_state == "APPROACH_DOOR" and time.time() - global_last_door_time > 1.0:
                         ignore_f = True
-                    if current_f_score > 0.72 and not ignore_f:
+                    if bot_state == "APPROACH_DOOR":
+                        if time.time() - last_prompt_log > 2.0:
+                            print(f"\n🔎 [交互诊断] F得分:{current_f_score:.3f}/{f_threshold:.2f} "
+                                  f"模板倍率:{f_scale} 门已对齐:{has_aligned_door} "
+                                  f"交互被拦截:{ignore_f}")
+                            last_prompt_log = time.time()
+                        if (getattr(self, 'door_height_reached', False)
+                                and current_f_score <= f_threshold
+                                and time.time() - last_prompt_snapshot > 10.0):
+                            # 固定文件覆盖，保留程序实际看到的画面，避免截图无限增长。
+                            debug_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                                     'debug', 'interaction')
+                            try:
+                                os.makedirs(debug_dir, exist_ok=True)
+                                annotated = game_img.copy()
+                                if f_box is not None:
+                                    x, y, bw, bh = f_box
+                                    cv2.rectangle(annotated, (x, y), (x + bw, y + bh), (0, 0, 255), 2)
+                                cv2.putText(annotated, f'F={current_f_score:.3f} scale={f_scale}',
+                                            (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                                ok, encoded = cv2.imencode('.png', annotated)
+                                if not ok:
+                                    raise RuntimeError('截图编码失败')
+                                encoded.tofile(os.path.join(debug_dir, 'door_prompt.png'))
+                                print(f"\n📷 [交互诊断] 未触发 F 的画面已保存至 {debug_dir}")
+                            except Exception as e:
+                                print(f"\n⚠️ 保存交互诊断截图失败: {e}")
+                            last_prompt_snapshot = time.time()
+                    if current_f_score > f_threshold and not ignore_f:
                         print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 强行打断动作，进入核验！")
                         stop_all()
                         bot_state = "VERIFY_DOOR"
@@ -1502,10 +1535,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     found_f = False
                     found_door = False
                     score_f = 0.0
-                    if f_tmpl is not None:
-                        res_f = cv2.matchTemplate(c_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
-                        score_f = cv2.minMaxLoc(res_f)[1]
-                        if score_f > 0.72: found_f = True
+                    score_f, _, _ = f_matcher.match(c_img)
+                    if score_f > f_threshold: found_f = True
                     for tmpl in open_door_templates:
                         res_d = cv2.matchTemplate(c_img, tmpl, cv2.TM_CCOEFF_NORMED)
                         if cv2.minMaxLoc(res_d)[1] > 0.7:
@@ -1516,16 +1547,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if verify_count >= 2:
                             if found_door:
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
-                                win32api.keybd_event(0x46, 0, 0, 0)
-                                time.sleep(0.05)
-                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
+                                pydirectinput.press('f')
                                 time.sleep(0.4)
                                 bot_state = "ITEM_PICKUP"
                             else:
                                 print(f"   📦 核验为【物资】！(F:{score_f:.2f}, 无门) 直接按 F 拾取！")
-                                win32api.keybd_event(0x46, 0, 0, 0)
-                                time.sleep(0.05)
-                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
+                                pydirectinput.press('f')
                                 time.sleep(0.2)  
                                 bot_state = "COMPASS_RUSH"
                     else:
