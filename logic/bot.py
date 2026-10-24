@@ -105,6 +105,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         keyboard.add_hotkey('home', self.toggle_pause)
         keyboard.add_hotkey('end', self.emergency_stop)
         keyboard.add_hotkey('ctrl+shift+f12', self.emergency_stop)
+        # 两个全局停止键注册成功后统一设置，覆盖大厅、跳伞及退出清理阶段。
+        pydirectinput.FAILSAFE = False
         print("💡 快捷键已启动：【HOME】暂停/开始，【END】或【Ctrl+Shift+F12】紧急停止")
         print("=" * 60)
 
@@ -752,7 +754,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
     def start_auto_run(self, window_info=None):
         import pydirectinput
-        pydirectinput.FAILSAFE = False
 
         print("\n" + "=" * 60)
         print("🛠️ [实战完全体] 完美闭环：防闪烁原地罚站 + 动态偏航纠正")
