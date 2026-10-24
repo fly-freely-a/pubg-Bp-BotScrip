@@ -732,8 +732,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         print("=" * 60)
 
         # 动态加载交互 UI 资源
-        f_path = os.path.join(self.image_dir, 'f.png')
+        f_path = os.path.join(self.image_dir, 'F.png')
         f_tmpl = cv2.imread(f_path) if os.path.exists(f_path) else None
+        print(f"🔎 [开门诊断] F模板已加载:{f_tmpl is not None} 路径:{f_path} "
+              f"尺寸:{f_tmpl.shape[:2] if f_tmpl is not None else None}")
+        last_door_diagnostic = 0.0
+        last_door_snapshot = 0.0
 
         door_path = os.path.join(self.image_dir, 'door.png')
         door3_path = os.path.join(self.image_dir, 'door3.png')
@@ -901,6 +905,35 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                     if bot_state == "APPROACH_DOOR" and not has_aligned_door:
                         ignore_f = True
+                    if bot_state == 'APPROACH_DOOR' and time.time() - last_door_diagnostic >= 2.0:
+                        reason = ('未加载F模板' if f_tmpl is None else
+                                  '对齐条件拦截' if ignore_f else
+                                  'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
+                        print(f"\n🔎 [开门诊断] F得分:{current_f_score:.4f} 阈值:>0.72 "
+                              f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
+                        last_door_diagnostic = time.time()
+                        if time.time() - last_door_snapshot >= 5.0:
+                            # 只记录现场，不改变任何动作条件。固定文件覆盖，避免无限增长。
+                            import json
+                            diagnostic_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                                          'debug', 'door_interaction')
+                            try:
+                                os.makedirs(diagnostic_dir, exist_ok=True)
+                                ok, encoded = cv2.imencode('.png', game_img)
+                                if not ok:
+                                    raise RuntimeError('原始画面编码失败')
+                                encoded.tofile(os.path.join(diagnostic_dir, 'frame.png'))
+                                metadata = dict(state=bot_state, f_score=float(current_f_score),
+                                                f_threshold=0.72, template_loaded=f_tmpl is not None,
+                                                has_aligned_door=bool(has_aligned_door),
+                                                ignore_f=bool(ignore_f), reason=reason,
+                                                marker_distance=dist, captured_at=time.time())
+                                with open(os.path.join(diagnostic_dir, 'status.json'), 'w', encoding='utf-8') as f:
+                                    json.dump(metadata, f, ensure_ascii=False, indent=2)
+                                print(f"📷 [开门诊断] 原始画面和判断状态已保存至 {diagnostic_dir}")
+                            except Exception as e:
+                                print(f"⚠️ [开门诊断] 保存失败:{e}")
+                            last_door_snapshot = time.time()
                     if current_f_score > 0.72 and not ignore_f:
                         print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 强行打断动作，进入核验！")
                         stop_all()

@@ -21,3 +21,6 @@ dist/
 
 # 过滤本地日志
 *.log
+
+# 本地开门诊断画面
+/debug/door_interaction/
