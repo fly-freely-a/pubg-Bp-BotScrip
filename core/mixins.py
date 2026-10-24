@@ -489,8 +489,8 @@ class ActionMixin:
             time.sleep(0.4)  # 等待光标闪烁
 
             # 【动作 2】：模拟键盘输入密码
-            print("⌨️ 正在输入密码: 131932")
-            pydirectinput.write('131932', interval=0.05)
+            print("⌨️ 正在输入配置的二级密码...")
+            pydirectinput.write(self.secondary_password, interval=0.05)
             time.sleep(0.5)
 
             # 【动作 3】：重新截图，寻找“确认”按钮

@@ -39,7 +39,6 @@ from ultralytics import YOLO
 
 from config import Config
 from core.mixins import WindowMixin, VisionMixin, MathMixin, ActionMixin
-from core.interaction import InteractionPromptMatcher
 
 
 class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
@@ -55,7 +54,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.ref_height = Config.REF_HEIGHT
         self.MAP_SIZE = Config.MAP_SIZE
         self.jump_distance_threshold = Config.JUMP_DISTANCE_THRESHOLD
-        self.near_target_search_distance = Config.NEAR_TARGET_SEARCH_DISTANCE
         self.target_points = Config.TARGET_POINTS.copy()
         self.thresholds = Config.THRESHOLDS.copy()
         self.secondary_password = getattr(Config, 'SECONDARY_PASSWORD', "131932")
@@ -104,11 +102,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.initial_target_coords = None
 
         keyboard.add_hotkey('home', self.toggle_pause)
-        keyboard.add_hotkey('end', self.emergency_stop)
-        keyboard.add_hotkey('ctrl+shift+f12', self.emergency_stop)
-        # 两个全局停止键注册成功后统一设置，覆盖大厅、跳伞及退出清理阶段。
-        pydirectinput.FAILSAFE = False
-        print("💡 快捷键已启动：【HOME】暂停/开始，【END】或【Ctrl+Shift+F12】紧急停止")
+        print("💡 快捷键已启动：【HOME】暂停/开始，【END】强制退出")
         print("=" * 60)
 
     def init_yolo(self):
@@ -184,28 +178,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             dist = math.hypot(target_x - user_x, target_y - user_y)
             return dist
         return None
-
-    def emergency_stop(self):
-        """全局热键直接退出，避免等待业务循环或长时间 sleep。"""
-        self.running = False
-        self.is_paused = True
-        try:
-            # 紧急路径禁用 PyDirectInput 的按键间延迟和鼠标角落检查。
-            pydirectinput.FAILSAFE = False
-            for key in pydirectinput.KEYBOARD_MAPPING:
-                try:
-                    pydirectinput.keyUp(key, _pause=False)
-                except Exception:
-                    pass
-            for button in ('left', 'right', 'middle'):
-                try:
-                    pydirectinput.mouseUp(button=button, _pause=False)
-                except Exception:
-                    pass
-            self.toggle_desktop_icons(show=True)
-        finally:
-            # sys.exit 只会结束热键回调线程；必须终止整个脚本进程。
-            os._exit(0)
 
     def toggle_pause(self):
         self.is_paused = not self.is_paused
@@ -284,13 +256,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             return True
         return False
 
-    def handle_endgame(self, game_img, window_info, allow_cancel=True):
+    def handle_endgame(self, game_img, window_info):
         if game_img is None: return False
         h, w = game_img.shape[:2]
         bottom_half = game_img[int(h * 0.4):h, 0:w]
         for btn_name in ['err', 'confirm', 'close', 'next', 'back','cancel']:
-            if btn_name == 'cancel' and not allow_cancel:
-                continue
             found, conf, pos = self.find_image(bottom_half, btn_name)
             if found:
                 print(f"\n   💀 发现脱战按钮 [{btn_name}.png]！执行脱战！")
@@ -753,40 +723,17 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # 🌟 修复落地卡死 bug，交还控制权给主循环
         return True
 
-    def _find_entry_door(self, frame):
-        """开门前用当前画面重新定位门，避免使用上一帧的对齐状态。"""
-        if self.yolo_model is None:
-            return None
-        door_id = self.door_class_id
-        results = self.yolo_model.predict(source=frame, conf=0.55, classes=[door_id],
-                                          verbose=False, half=True, imgsz=640)
-        doors = []
-        for result in results:
-            for box in result.boxes:
-                if int(box.cls[0].item()) != door_id or box.conf[0].item() <= 0.55:
-                    continue
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                if x2 > x1 and y2 - y1 > frame.shape[0] * 0.1:
-                    doors.append(dict(x=(x1 + x2) / 2, y=(y1 + y2) / 2,
-                                      w=x2 - x1, h=y2 - y1))
-        return max(doors, key=lambda d: d['w'] * d['h']) if doors else None
-
     def start_auto_run(self, window_info=None):
         import pydirectinput
+        pydirectinput.FAILSAFE = False
 
         print("\n" + "=" * 60)
         print("🛠️ [实战完全体] 完美闭环：防闪烁原地罚站 + 动态偏航纠正")
         print("=" * 60)
 
         # 动态加载交互 UI 资源
-        f_tmpl = self._load_img('F.png')
-        if f_tmpl is None:
-            self.stop_all_movement()
-            raise RuntimeError('无法加载 F.png，请将 Config.IMAGE_DIR 指向项目 image 目录')
-        f_matcher = InteractionPromptMatcher(f_tmpl)
-        f_threshold = 0.72
-        last_prompt_log = 0.0
-        last_prompt_snapshot = 0.0
+        f_path = os.path.join(self.image_dir, 'f.png')
+        f_tmpl = cv2.imread(f_path) if os.path.exists(f_path) else None
 
         door_path = os.path.join(self.image_dir, 'door.png')
         door3_path = os.path.join(self.image_dir, 'door3.png')
@@ -840,7 +787,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         bot_state = "COMPASS_RUSH"
         entered_target_zone = False
-        target_zone_exit_count = 0
 
         last_action_log = ""
         self.last_ai_print = time.time()
@@ -859,13 +805,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         last_space_time = 0.0
         verify_count = 0
-        verifying_door = False
-        entry_last_ratio = None
-        last_entry_log = 0.0
-        visual_search_started = 0.0
-        last_visual_target_x = None
-        last_entry_alignment = None
-        entry_alignment_frames = 0
 
         last_afk_move_time = time.time()
 
@@ -875,10 +814,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # 罗盘黄点记忆变量
         last_valid_tx_compass = None
         last_valid_tx_time = time.time()
-        last_target_search_log = 0.0
-        last_target_search_snapshot = 0.0
 
-        print("🏃‍♂️ 开启狂奔：距离 >15px 纯看罗盘，<=15px 激活视觉索敌！")
+        print("🏃‍♂️ 开启狂奔：距离 >20px 纯看罗盘，<=20px 激活视觉索敌！")
 
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         time.sleep(0.05)
@@ -898,7 +835,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 game_img, current_window_info = self.capture_game_screen()
                 if game_img is None: time.sleep(0.05); continue
 
-                current_f_score, f_box, f_scale = f_matcher.match(game_img)
+                current_f_score = 0.0
+                if f_tmpl is not None:
+                    res_f = cv2.matchTemplate(game_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
+                    current_f_score = cv2.minMaxLoc(res_f)[1]
 
                 if self.handle_endgame(game_img, current_window_info):
                     self.has_marked_this_match = False
@@ -919,10 +859,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if len(dist_history) > 5:
                             dist_history.pop(0)
 
-                        if len(dist_history) == 5 and dist > self.near_target_search_distance:
+                        if len(dist_history) == 5 and dist > 30.0:
                             if (dist_history[-1] - dist_history[0]) > 2.0 and dist_history[-1] >= dist_history[-2]:
-                                print(f"\n🚨 [偏航预警] 距离持续增加 ({dist_history[0]:.1f} -> {dist:.1f}px)，停步重新校准方向。")
+                                print(f"\n🚨 [偏航预警] 距离持续增加 ({dist_history[0]:.1f} -> {dist:.1f}px)！目标已在背后！")
                                 stop_all()
+                                print("   🔄 强制向后转身找点，把真实黄点拉回视野...")
+                                for _ in range(15):
+                                    win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, 200, 0, 0, 0)
+                                    time.sleep(0.02)
+                                time.sleep(0.5) 
                                 self.compass_align(current_window_info)
 
                                 time.sleep(1.0)
@@ -930,87 +875,46 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 global_progress_time = time.time()
                                 continue
 
-                    if dist <= 15.0:
-                        target_zone_exit_count = 0
+                    if dist <= 30.0:
                         if not entered_target_zone:
-                            print("\n📍 进入标点15px范围，启用YOLO视觉。")
+                            print("\n📍 已抵达目标 20px 核心区！正式激活【YOLO视觉】逻辑！")
                             entered_target_zone = True
                     elif dist > 30.0:
                         if entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
-                            target_zone_exit_count += 1
-                            if target_zone_exit_count >= 3:
-                                print(f"\n🚨 [电子围栏报警] 连续3次距离超过30px (当前:{dist:.1f}px)，退回罗盘导航。")
-                                entered_target_zone = False
-                                target_zone_exit_count = 0
-                                stop_all()
-                                bot_state = "COMPASS_RUSH"
-                                dist_history.clear()
-                                global_progress_time = time.time()
-                                continue
-                        else:
-                            target_zone_exit_count = 0
-                    else:
-                        target_zone_exit_count = 0
+                            print(f"\n🚨 [电子围栏报警] 偏离标点过远 ({dist:.1f}px > 30px)！判定为追错目标或迷失！")
+                            print("🚨 强行关闭 YOLO 视觉，退回罗盘导航重新拉回目标点...")
+                            entered_target_zone = False
+                            stop_all()
+                            bot_state = "COMPASS_RUSH"
+                            dist_history.clear()
+                            global_progress_time = time.time()
+                            continue
 
                 # ==========================================
                 # 全局智能 F 交互拦截器
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
                     ignore_f = False
-                    if bot_state in ["RUNNING", "CIRCLING", "SEARCH_TARGET"]:
+                    if bot_state in ["RUNNING", "CIRCLING"]:
                         if time.time() - global_last_door_time > 3:
                             ignore_f = True
 
-                    # 门旁已经出现 F 提示时，不再等待门框宽高比达标。
-                    if (bot_state == "APPROACH_DOOR" and time.time() - global_last_door_time > 1.0
-                            and (last_entry_alignment is None or time.time() - last_entry_alignment > 3.0)):
+                    if bot_state == "APPROACH_DOOR" and not has_aligned_door:
                         ignore_f = True
-                    if bot_state == "APPROACH_DOOR":
-                        if time.time() - last_prompt_log > 2.0:
-                            print(f"\n🔎 [交互诊断] F得分:{current_f_score:.3f}/{f_threshold:.2f} "
-                                  f"模板倍率:{f_scale} 门已对齐:{has_aligned_door} "
-                                  f"交互被拦截:{ignore_f}")
-                            last_prompt_log = time.time()
-                        if (getattr(self, 'door_height_reached', False)
-                                and current_f_score <= f_threshold
-                                and time.time() - last_prompt_snapshot > 10.0):
-                            # 固定文件覆盖，保留程序实际看到的画面，避免截图无限增长。
-                            debug_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                                     'debug', 'interaction')
-                            try:
-                                os.makedirs(debug_dir, exist_ok=True)
-                                annotated = game_img.copy()
-                                if f_box is not None:
-                                    x, y, bw, bh = f_box
-                                    cv2.rectangle(annotated, (x, y), (x + bw, y + bh), (0, 0, 255), 2)
-                                cv2.putText(annotated, f'F={current_f_score:.3f} scale={f_scale}',
-                                            (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-                                ok, encoded = cv2.imencode('.png', annotated)
-                                if not ok:
-                                    raise RuntimeError('截图编码失败')
-                                encoded.tofile(os.path.join(debug_dir, 'door_prompt.png'))
-                                print(f"\n📷 [交互诊断] 未触发 F 的画面已保存至 {debug_dir}")
-                            except Exception as e:
-                                print(f"\n⚠️ 保存交互诊断截图失败: {e}")
-                            last_prompt_snapshot = time.time()
-                    if current_f_score > f_threshold and not ignore_f:
+                    if current_f_score > 0.72 and not ignore_f:
                         print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 强行打断动作，进入核验！")
                         stop_all()
-                        verifying_door = bot_state == 'APPROACH_DOOR' or time.time() - global_last_door_time < 1.0
                         bot_state = "VERIFY_DOOR"
-                        verify_count = 0
-                        entry_last_ratio = None
+                        verify_count = 1
                         global_progress_time = time.time()
                         continue
                 # ==========================================
                 # YOLO 视觉逻辑
                 # ==========================================
                 toilet_box, valid_door_box = None, None
-                raw_detection_count = 0
 
                 if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
                     results = self.yolo_model.predict(source=game_img, conf=0.5, classes=[0, 1], verbose=False,half=True, imgsz=640,)
-                    raw_detection_count = sum(len(r.boxes) for r in results)
                     toilet_boxes, door_boxes = [], []
 
                     for r in results:
@@ -1039,31 +943,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if abs(toilet_box['x'] - center_x) > 800:
                             toilet_box = None
 
-                # 在尚能看到完整门时记录对齐，贴脸后允许短时沿用。
-                if bot_state not in ('APPROACH_DOOR', 'VERIFY_DOOR'):
-                    last_entry_alignment = None
-                    entry_alignment_frames = 0
-                if bot_state == 'APPROACH_DOOR' and valid_door_box is not None:
-                    d = valid_door_box
-                    # 占满画面的检测框可能已被裁切，不用它覆盖之前的可靠记录。
-                    if d['h'] < h * 0.8:
-                        aligned = (abs(d['x'] - center_x) <= min(20.0, d['w'] * 0.1)
-                                   and d['w'] / d['h'] >= 0.45
-                                   and not keys_pressed['a'] and not keys_pressed['d'])
-                        if aligned:
-                            entry_alignment_frames += 1
-                            if entry_alignment_frames >= 2:
-                                last_entry_alignment = time.time()
-                        else:
-                            entry_alignment_frames = 0
-                            last_entry_alignment = None
-
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
                 if valid_door_box: global_last_door_time = time.time()
 
                 if target_focus:
-                    last_visual_target_x = target_focus['x']
                     global_last_seen_time = time.time()
                     curr_t = time.time()
                     t_name = "大门" if valid_door_box else "厕所"
@@ -1072,13 +956,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         print(f"   👁️ AI视觉: 捕获[{t_name}] (高度:{target_focus['h']:.1f}, 偏差X:{target_focus['x'] - center_x:.1f})")
                         self.last_ai_print = curr_t
 
-                    if bot_state in ("COMPASS_RUSH", "SEARCH_TARGET"):
+                    if bot_state == "COMPASS_RUSH":
                         print(f"\n🎯 [视觉接管] 奔袭途中发现 [{t_name}]！切入突击模式...")
                         stop_all()
 
                         bot_state = "APPROACH_DOOR" if valid_door_box else "RUNNING"
-                        dist_history.clear()
-                        self.last_known_toilet_h = toilet_box['h'] if toilet_box else 0
                         is_skew_locked = False
                         last_aspect_ratio = 0.0
                         has_aligned_door = False
@@ -1092,35 +974,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
 
                 if bot_state == "COMPASS_RUSH":
-                    if dist is None:
-                        stop_all()
-                        continue
-                    # 已到标点却没有有效视觉目标：停步搜索，不继续撞向黄点或随机跳跃。
-                    # 有效目标已在上方切换到 RUNNING / APPROACH_DOOR 并 continue。
-                    if entered_target_zone and dist is not None and dist <= self.near_target_search_distance:
-                        stop_all()
-                        if time.time() - last_target_search_log > 2.0:
-                            print(f"\n🔎 [近点搜索] 距标点:{dist:.1f}px 模型已加载:{self.yolo_model is not None} "
-                                  f"原始候选:{raw_detection_count} 有效目标:0；停步转动视角寻找厕所/门")
-                            last_target_search_log = time.time()
-                        if time.time() - last_target_search_snapshot > 10.0:
-                            debug_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                                     'debug', 'target_search')
-                            try:
-                                os.makedirs(debug_dir, exist_ok=True)
-                                ok, encoded = cv2.imencode('.png', game_img)
-                                if not ok:
-                                    raise RuntimeError('截图编码失败')
-                                encoded.tofile(os.path.join(debug_dir, 'no_target.png'))
-                                print(f"\n📷 [近点搜索] 未选出有效目标的画面已保存至 {debug_dir}")
-                            except Exception as e:
-                                print(f"\n⚠️ 保存近点搜索截图失败: {e}")
-                            last_target_search_snapshot = time.time()
-                        self.rotate_mouse_raw(300, 0)
-                        continue
-                    if dist <= 15.0:
-                        # 先释放上一帧的疾跑/移动，再校准方向。
-                        stop_all()
                     tx_compass = self.find_target_on_compass(game_img)
                     if tx_compass is not None:
                         last_valid_tx_compass = tx_compass
@@ -1146,15 +999,27 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if abs_diff > 3:
                             self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
 
-                        if dist <= 15.0:
-                            # 短按后必须松开 W；下一轮截图/推理期间保持停步。
-                            if abs(diff_x) <= 60:
-                                try:
-                                    set_key('w', True)
-                                    time.sleep(0.10)
-                                finally:
+                        if dist is not None and dist <= 30.0:
+                            if is_sprinting:
+                                print("   🚶 进圈解除疾跑，静步索敌...")
+                                set_key('shift', False)
+                                is_sprinting = False
+                            if abs(diff_x) > 60:
+                                if keys_pressed['w']:
+                                    print("   🛑 目标在侧后方，停步转身...")
                                     set_key('w', False)
-                                time.sleep(0.15)
+                            else:
+                                if not keys_pressed['w']:
+                                    set_key('w', True)
+                            curr_t = time.time()
+                            last_scrape = getattr(self, 'last_scrape_time', 0)
+                            if curr_t - last_scrape > 3.0: 
+                                pydirectinput.press('space') 
+                                scrape_key = random.choice(['a', 'd'])
+                                set_key(scrape_key, True)
+                                time.sleep(0.3)
+                                set_key(scrape_key, False)
+                                self.last_scrape_time = time.time()
                         else:
                             if not is_sprinting:
                                 set_key('w', True)
@@ -1190,7 +1055,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     else:
                         time_since_last_seen = time.time() - last_valid_tx_time
 
-                        if dist > 15.0 and time_since_last_seen < 1.0:
+                        if time_since_last_seen < 1.0:
                             if not is_sprinting:
                                 set_key('w', True)
                                 set_key('shift', True)
@@ -1199,18 +1064,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             stop_all()
                             sweep_speed = 30 if (dist is not None and dist <= 25.0) else 120
                             self.rotate_mouse_raw(sweep_speed, 0)
-
-                elif bot_state == "SEARCH_TARGET":
-                    stop_all()
-                    if time.time() - visual_search_started >= 8.0:
-                        print("\n🔎 [局部搜索] 8秒未找回建筑，清空旧测距后退回罗盘导航。")
-                        bot_state = "COMPASS_RUSH"
-                        dist_history.clear()
-                        global_progress_time = time.time()
-                    else:
-                        direction = -1 if last_visual_target_x is not None and last_visual_target_x < center_x else 1
-                        self.rotate_mouse_raw(direction * 120, 0)
-                    continue
 
                 elif bot_state == "RUNNING":
                     if valid_door_box:
@@ -1241,19 +1094,35 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 global_progress_time = time.time()
                                 continue
                             else:
-                                print("\n🔎 突击视野丢失超过3秒，停步局部搜索建筑。")
+                                print("\n⚠️ 突击视野彻底丢失超 1.5s！退回罗盘奔袭...")
                                 stop_all()
-                                bot_state = "SEARCH_TARGET"
-                                visual_search_started = time.time()
+                                bot_state = "COMPASS_RUSH"
                                 dist_history.clear()
                                 global_progress_time = time.time()
                                 continue
                         else:
-                            stop_all()
-                            if last_action_log != "WAIT_VISUAL":
-                                print("\n👀 建筑检测短暂丢失，停步等待恢复，避免盲跑越过门口。")
-                                last_action_log = "WAIT_VISUAL"
-                            continue
+                            last_h = getattr(self, 'last_known_toilet_h', 0)
+                            if last_h < h * 0.35:
+                                if last_action_log != "BLIND_RUSH_FAR":
+                                    print("   👀 远距离视野闪断！保持惯性狂奔冲刺...")
+                                    last_action_log = "BLIND_RUSH_FAR"
+
+                                if not is_sprinting or keys_pressed['ctrl']:
+                                    set_key('ctrl', False)
+                                    set_key('w', False)  
+                                    time.sleep(0.02)
+                                    set_key('shift', True)
+                                    set_key('w', True)
+                                    is_sprinting = True
+                            else:
+                                if last_action_log != "BLIND_TOUCH_CLOSE":
+                                    print("   👀 近战视野死角！保持记忆慢速盲摸...")
+                                    last_action_log = "BLIND_TOUCH_CLOSE"
+                                set_key('shift', False)
+                                set_key('ctrl', True)
+                                set_key('w', True)
+                                is_sprinting = False
+                            continue  
                     diff_x = toilet_box['x'] - center_x
                     if abs(diff_x) > 100.0:
                         if last_action_log != "VISUAL_ADJUST":
@@ -1339,10 +1208,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     global_progress_time = time.time()
 
                     if not toilet_box and not valid_door_box:
-                        print("\n🔎 绕桩时目标丢失，停步转向找回建筑，不立即追标点。")
+                        print("\n⚠️ 绕桩时丢失所有目标(无厕所无门)！强制退回罗盘！")
                         stop_all()
-                        bot_state = "SEARCH_TARGET"
-                        visual_search_started = time.time()
+                        bot_state = "COMPASS_RUSH"
                         continue
 
                     if valid_door_box:
@@ -1449,10 +1317,14 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         time_since_lost = time.time() - global_last_door_time
 
                         if time_since_lost < 1:
-                            stop_all()
-                            if last_action_log != "WAIT_CLOSE_DOOR":
-                                print("\n👀 近处门检测暂时丢失，停步等待 F 提示或门重新出现。")
-                                last_action_log = "WAIT_CLOSE_DOOR"
+                            if last_action_log != "BLIND_RUSH":
+                                print("\n⚠️ 贴脸大门视野闪断！保持 Ctrl+W 惯坚盲进！")
+                                last_action_log = "BLIND_RUSH"
+                            set_key('shift', False)
+                            set_key('a', False)
+                            set_key('d', False)
+                            set_key('ctrl', True)
+                            set_key('w', True)
                             global_progress_time = time.time()
                         elif time_since_lost < 2.2:
                             stop_all()
@@ -1461,24 +1333,20 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 last_action_log = "WAIT_DOOR"
                         else:
                             stop_all()
-                            print("\n⚠️ 大门丢失超过2.2秒，尝试重新定位建筑。")
+                            print("\n⚠️ 彻底丢失大门超 3.5s！(超时触发)")
                             self.door_height_reached = False 
                             if toilet_box:
                                 print("   🔄 视野内存在厕所，平滑降级为【厕所突击】(RUNNING)...")
                                 bot_state = "RUNNING"
                             else:
-                                print("   🔎 视野内无厕所/大门，停步局部搜索。")
-                                bot_state = "SEARCH_TARGET"
-                                visual_search_started = time.time()
+                                print("   🧭 视野内无厕所/大门，彻底退回【罗盘奔袭】...")
+                                bot_state = "COMPASS_RUSH"
 
                             last_action_log = ""
                             global_progress_time = time.time()
                             continue
                     else:
                         diff_door = valid_door_box['x'] - center_x
-                        if abs(diff_door) >= 20:
-                            last_entry_alignment = None
-                            entry_alignment_frames = 0
                         door_h = valid_door_box['h']  
                         aspect_ratio = valid_door_box['w'] / door_h  
                         
@@ -1520,8 +1388,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 has_aligned_door = True
 
                         if not has_aligned_door:
-                            last_entry_alignment = None
-                            entry_alignment_frames = 0
                             set_key('w', False)
                             set_key('shift', False)
                             set_key('ctrl', True)
@@ -1612,84 +1478,38 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     found_f = False
                     found_door = False
                     score_f = 0.0
-                    score_f, _, _ = f_matcher.match(c_img)
-                    if score_f > f_threshold: found_f = True
+                    if f_tmpl is not None:
+                        res_f = cv2.matchTemplate(c_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
+                        score_f = cv2.minMaxLoc(res_f)[1]
+                        if score_f > 0.72: found_f = True
                     for tmpl in open_door_templates:
                         res_d = cv2.matchTemplate(c_img, tmpl, cv2.TM_CCOEFF_NORMED)
                         if cv2.minMaxLoc(res_d)[1] > 0.7:
                             found_door = True
                             break
                     if found_f:
-                        if verifying_door or found_door:
-                            stop_all()
-                            if last_entry_alignment is not None and time.time() - last_entry_alignment <= 3.0:
-                                # 只复核 F 提示，不要求贴脸后再次识别完整门。
-                                found_door = True
-                            else:
-                                entry_door = self._find_entry_door(c_img)
-                                if entry_door is None:
-                                    verify_count = 0
-                                    last_entry_alignment = None
-                                    entry_alignment_frames = 0
-                                    print("\n🚪 [进门对齐] 无近期对齐记录，短暂后退恢复门的视野。")
-                                    try:
-                                        set_key('s', True)
-                                        time.sleep(0.2)
-                                    finally:
-                                        set_key('s', False)
-                                    bot_state = 'APPROACH_DOOR'
-                                    has_aligned_door = False
-                                    last_action_log = ''
-                                    continue
-                                entry_diff = entry_door['x'] - c_img.shape[1] / 2
-                                entry_ratio = entry_door['w'] / entry_door['h']
-                                center_tolerance = min(40.0, entry_door['w'] * 0.15)
-                                if time.time() - last_entry_log > 1.0:
-                                    print(f"\n🚪 [进门对齐] 门框偏差:{entry_diff:.1f}px "
-                                          f"容差:{center_tolerance:.1f}px 宽高比:{entry_ratio:.2f}/0.45")
-                                    last_entry_log = time.time()
-                                if abs(entry_diff) > center_tolerance:
-                                    verify_count = 0
-                                    last_entry_alignment = None
-                                    entry_last_ratio = None
-                                    self.rotate_mouse_raw(int(max(-80, min(80, entry_diff * 0.4))), 0)
-                                    continue
-                                if entry_ratio < 0.45:
-                                    last_entry_alignment = None
-                                    verify_count = 0
-                                    if entry_last_ratio is not None and entry_ratio < entry_last_ratio - 0.02:
-                                        skew_dir = 'd' if skew_dir == 'a' else 'a'
-                                    entry_last_ratio = entry_ratio
-                                    try:
-                                        set_key('ctrl', True)
-                                        set_key(skew_dir, True)
-                                        time.sleep(0.08)
-                                    finally:
-                                        set_key(skew_dir, False)
-                                        set_key('ctrl', False)
-                                    continue
-                                last_entry_alignment = time.time()
-                            found_door = True
                         verify_count += 1
                         if verify_count >= 2:
                             if found_door:
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
-                                pydirectinput.press('f')
-                                time.sleep(0.6)
+                                win32api.keybd_event(0x46, 0, 0, 0)
+                                time.sleep(0.05)
+                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
+                                time.sleep(0.4)
                                 bot_state = "ITEM_PICKUP"
                             else:
                                 print(f"   📦 核验为【物资】！(F:{score_f:.2f}, 无门) 直接按 F 拾取！")
-                                pydirectinput.press('f')
+                                win32api.keybd_event(0x46, 0, 0, 0)
+                                time.sleep(0.05)
+                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
                                 time.sleep(0.2)  
                                 bot_state = "COMPASS_RUSH"
                     else:
-                        print(f"   ⚠️ F 提示闪断或误报 (F置信度:{score_f:.2f})，停止交互并重新定位。")
+                        print(f"   ⚠️ F 提示闪断或误报 (F置信度:{score_f:.2f})，退回罗盘奔袭...")
+                        pydirectinput.press('s')
+                        pydirectinput.press('s')
                         stop_all()
-                        if verifying_door:
-                            bot_state = "SEARCH_TARGET"
-                            visual_search_started = time.time()
-                        else:
-                            bot_state = "COMPASS_RUSH"
+                        bot_state = "COMPASS_RUSH"
 
                 elif bot_state == "ITEM_PICKUP":
                     global_progress_time = time.time()
@@ -1775,7 +1595,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             # ==========================================
             if bot_state == "COMPASS_RUSH" and not entered_target_zone:
                 dist_str = f"{dist:.1f}" if dist is not None else "??"
-                print(f"🧭 罗盘导航中... 距标点: {dist_str}px (未进15px核心区) | 👁️F置信:{current_f_score:.2f}    ", end='\r')
+                print(f"🧭 罗盘导航中... 距标点: {dist_str}px (未进20px核心区) | 👁️F置信:{current_f_score:.2f}    ", end='\r')
             else:
                 active_keys = "+".join([k.upper() for k, v in keys_pressed.items() if v])
                 if not active_keys: active_keys = "无"
@@ -1814,10 +1634,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 if self.is_paused: time.sleep(1); continue
                 if keyboard.is_pressed('end'): break
 
-                # 从首次点击开始计时，准备、排队和加载均不能无限延长等待。
+                # 点击开始后最多等待地图5分钟，重复点击和加载不延长期限
                 timeout_started = map_wait_started if map_wait_started is not None else watchdog_timer
                 if time.time() - timeout_started >= 300:
-                    print("\n🚨 [超时看门狗] 5分钟未识别到地图或后续进展，重新启动游戏。")
+                    print("\n🚨 [超时看门狗] 5分钟无进展(疑似卡死/黑屏/断网)，执行拔管重连！")
                     self.force_restart_pubg()
                     map_wait_started = None
                     watchdog_timer = time.time()
@@ -1846,16 +1666,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 game_img, window_info = self.capture_game_screen()
                 if game_img is None or window_info is None: time.sleep(2); continue
 
-                f_start, c_start, pos_start = self.find_image(game_img, 'start_btn')
-                f_load, _, _ = self.find_image(game_img, 'loading')
-                f_naozhong, _, _ = self.find_image(game_img, 'naozhong')
-                f_count4, c_count4, _ = self.find_image(game_img, 'count4')
-                if f_naozhong:
-                    map_wait_started = None
-                    watchdog_timer = time.time()
-
-                if self.handle_endgame(game_img, window_info,
-                                       allow_cancel=map_wait_started is None):
+                if self.handle_endgame(game_img, window_info):
                     self.has_marked_this_match = False
                     self.is_waiting_for_jump = False
                     self.best_jump_point_coords = None
@@ -1865,10 +1676,17 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 if hasattr(self, 'handle_password_input'):
                     if self.handle_password_input(game_img, window_info): continue
 
+                f_start, c_start, pos_start = self.find_image(game_img, 'start_btn')
+                f_load, _, _ = self.find_image(game_img, 'loading')
+                f_naozhong, _, _ = self.find_image(game_img, 'naozhong')
+                f_count4, c_count4, _ = self.find_image(game_img, 'count4')
+                if f_naozhong:
+                    map_wait_started = None
+                    watchdog_timer = time.time()
                 now = time.strftime("%H:%M:%S")
 
-                if f_start and not (f_load or f_naozhong or f_count4):
-                    print(f"\n[{now}] 🖱️ 检测到【大厅界面】(得分:{c_start:.2f})，点击开始；最多等待地图5分钟")
+                if f_start:
+                    print(f"\n[{now}] 🖱️ 检测到【大厅界面】(得分:{c_start:.2f})，开始【双击】匹配")
                     # 🌟 4. 喂狗：看到开始按钮，说明游戏健康，重置看门狗寿命
                     watchdog_timer = time.time()
 
@@ -1887,11 +1705,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     win32api.SetCursorPos((win_x + bor_x + real_click_x, win_y + bor_y + real_click_y))
                     time.sleep(0.1);
                     pyautogui.click();
+                    time.sleep(0.5);
+                    pyautogui.click();
                     if map_wait_started is None:
                         map_wait_started = time.time()
                     time.sleep(5)
 
-                elif f_load and not (f_naozhong or f_count4):
+                elif f_load:
                     print(f"[{now}] ⏳ 画面加载中...", end="\r", flush=True)
                     time.sleep(3)
 

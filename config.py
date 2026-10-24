@@ -4,7 +4,6 @@ from pathlib import Path
 class Config:
     # --- 路径配置 ---
     BASE_DIR = Path(__file__).resolve().parent
-    # 相对路径以项目目录为基准，也支持本机绝对路径。
     IMAGE_DIR = "image"
     MODEL_PATH = "pubg_toilet_model-7/weights/best.pt"
 
@@ -13,8 +12,7 @@ class Config:
     REF_HEIGHT = 1000
     MAP_SIZE = 1050
     JUMP_DISTANCE_THRESHOLD = 150
-    NEAR_TARGET_SEARCH_DISTANCE = 8.0  # 归一化截图中小地图像素距离，非游戏米数
-    SECONDARY_PASSWORD = "466494"  # 例如"你的二级密码"
+    SECONDARY_PASSWORD = "466494"
     # --- 精确跳伞点位 ---
     TARGET_POINTS = [
         {"id": 1, "x": 544, "y": 577, "name": "精确厕所_1"},
