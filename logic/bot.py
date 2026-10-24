@@ -102,7 +102,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.initial_target_coords = None
 
         keyboard.add_hotkey('home', self.toggle_pause)
-        print("💡 快捷键已启动：【HOME】暂停/开始，【END】强制退出")
+        keyboard.add_hotkey('end', self.emergency_stop)
+        keyboard.add_hotkey('ctrl+shift+f12', self.emergency_stop)
+        print("💡 快捷键已启动：【HOME】暂停/开始，【END】或【Ctrl+Shift+F12】紧急停止")
         print("=" * 60)
 
     def init_yolo(self):
@@ -178,6 +180,28 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             dist = math.hypot(target_x - user_x, target_y - user_y)
             return dist
         return None
+
+    def emergency_stop(self):
+        """全局热键直接退出，避免等待业务循环或长时间 sleep。"""
+        self.running = False
+        self.is_paused = True
+        try:
+            # 紧急路径禁用 PyDirectInput 的按键间延迟和鼠标角落检查。
+            pydirectinput.FAILSAFE = False
+            for key in pydirectinput.KEYBOARD_MAPPING:
+                try:
+                    pydirectinput.keyUp(key, _pause=False)
+                except Exception:
+                    pass
+            for button in ('left', 'right', 'middle'):
+                try:
+                    pydirectinput.mouseUp(button=button, _pause=False)
+                except Exception:
+                    pass
+            self.toggle_desktop_icons(show=True)
+        finally:
+            # sys.exit 只会结束热键回调线程；必须终止整个脚本进程。
+            os._exit(0)
 
     def toggle_pause(self):
         self.is_paused = not self.is_paused
