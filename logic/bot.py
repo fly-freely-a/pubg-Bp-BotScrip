@@ -875,7 +875,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_target_search_log = 0.0
         last_target_search_snapshot = 0.0
 
-        print("🏃‍♂️ 开启狂奔：距离 >20px 纯看罗盘，<=20px 激活视觉索敌！")
+        print("🏃‍♂️ 开启狂奔：距离 >15px 纯看罗盘，<=15px 激活视觉索敌！")
 
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         time.sleep(0.05)
@@ -916,7 +916,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if len(dist_history) > 5:
                             dist_history.pop(0)
 
-                        if len(dist_history) == 5 and dist > 30.0:
+                        if len(dist_history) == 5 and dist > 15.0:
                             if (dist_history[-1] - dist_history[0]) > 2.0 and dist_history[-1] >= dist_history[-2]:
                                 print(f"\n🚨 [偏航预警] 距离持续增加 ({dist_history[0]:.1f} -> {dist:.1f}px)！目标已在背后！")
                                 stop_all()
@@ -932,13 +932,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 global_progress_time = time.time()
                                 continue
 
-                    if dist <= 30.0:
+                    if dist <= 15.0:
                         if not entered_target_zone:
-                            print("\n📍 进入标点30px范围，启用YOLO视觉；尚未达到停步搜索距离。")
+                            print("\n📍 进入标点15px范围，启用YOLO视觉。")
                             entered_target_zone = True
-                    elif dist > 30.0:
+                    elif dist > 15.0:
                         if entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
-                            print(f"\n🚨 [电子围栏报警] 偏离标点过远 ({dist:.1f}px > 30px)！判定为追错目标或迷失！")
+                            print(f"\n🚨 [电子围栏报警] 偏离标点过远 ({dist:.1f}px > 15px)！判定为追错目标或迷失！")
                             print("🚨 强行关闭 YOLO 视觉，退回罗盘导航重新拉回目标点...")
                             entered_target_zone = False
                             stop_all()
@@ -1132,7 +1132,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if abs_diff > 3:
                             self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
 
-                        if dist is not None and dist <= 30.0:
+                        if dist is not None and dist <= 15.0:
                             if is_sprinting:
                                 print("   🚶 进圈解除疾跑，静步索敌...")
                                 set_key('shift', False)
@@ -1777,7 +1777,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             # ==========================================
             if bot_state == "COMPASS_RUSH" and not entered_target_zone:
                 dist_str = f"{dist:.1f}" if dist is not None else "??"
-                print(f"🧭 罗盘导航中... 距标点: {dist_str}px (未进20px核心区) | 👁️F置信:{current_f_score:.2f}    ", end='\r')
+                print(f"🧭 罗盘导航中... 距标点: {dist_str}px (未进15px核心区) | 👁️F置信:{current_f_score:.2f}    ", end='\r')
             else:
                 active_keys = "+".join([k.upper() for k, v in keys_pressed.items() if v])
                 if not active_keys: active_keys = "无"

@@ -6,6 +6,27 @@ from unittest.mock import Mock
 
 
 class NearTargetSearchTests(unittest.TestCase):
+    def test_visual_zone_and_fence_use_fifteen_pixel_boundary(self):
+        path = Path(__file__).resolve().parents[1] / 'logic' / 'bot.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        zone = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                    and ast.unparse(n.test) == 'dist <= 15.0')
+        for distance, was_inside, expected in ((14.9, False, True),
+                                               (15.0, False, True),
+                                               (15.1, False, False),
+                                               (15.1, True, False)):
+            with self.subTest(distance=distance, was_inside=was_inside):
+                # 外围退出分支包含 continue，包进一轮循环执行真实代码。
+                loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()),
+                               iter=ast.Tuple(elts=[ast.Constant(0)], ctx=ast.Load()),
+                               body=[zone], orelse=[])
+                module = ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[]))
+                namespace = dict(dist=distance, entered_target_zone=was_inside,
+                                 bot_state='COMPASS_RUSH', stop_all=Mock(), dist_history=[],
+                                 time=SimpleNamespace(time=lambda: 100.0))
+                exec(compile(module, str(path), 'exec'), namespace)
+                self.assertEqual(namespace['entered_target_zone'], expected)
+
     def replay(self, distance):
         path = Path(__file__).resolve().parents[1] / 'logic' / 'bot.py'
         tree = ast.parse(path.read_text(encoding='utf-8'))
@@ -30,7 +51,7 @@ class NearTargetSearchTests(unittest.TestCase):
         namespace = dict(bot_state='COMPASS_RUSH', entered_target_zone=True,
                          dist=distance, self=controller, game_img=None,
                          time=SimpleNamespace(time=lambda: 100.0, sleep=Mock()),
-                         center_x=960, is_sprinting=False, keys_pressed={'w': False},
+                         center_x=960, is_sprinting=False, keys_pressed={'w': False, 'a': False, 'd': False},
                          set_key=set_key, stop_all=stop, pydirectinput=inputs,
                          random=SimpleNamespace(choice=lambda _: 'a'),
                          last_target_search_log=100.0,
