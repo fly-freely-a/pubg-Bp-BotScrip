@@ -67,6 +67,7 @@ class InteractionPromptTests(unittest.TestCase):
                                  time=SimpleNamespace(time=lambda: 100.0),
                                  global_last_door_time=100.0-door_age,
                                  has_aligned_door=False, current_f_score=score,
+                                 last_entry_alignment=None,
                                  f_threshold=0.72, last_prompt_log=100.0,
                                  self=SimpleNamespace(door_height_reached=False),
                                  stop_all=stop)

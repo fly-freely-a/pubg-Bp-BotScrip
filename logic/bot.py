@@ -861,6 +861,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         verifying_door = False
         entry_last_ratio = None
         last_entry_log = 0.0
+        last_entry_alignment = None
+        entry_alignment_frames = 0
 
         last_afk_move_time = time.time()
 
@@ -955,7 +957,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             ignore_f = True
 
                     # 门旁已经出现 F 提示时，不再等待门框宽高比达标。
-                    if bot_state == "APPROACH_DOOR" and time.time() - global_last_door_time > 1.0:
+                    if (bot_state == "APPROACH_DOOR" and time.time() - global_last_door_time > 1.0
+                            and (last_entry_alignment is None or time.time() - last_entry_alignment > 3.0)):
                         ignore_f = True
                     if bot_state == "APPROACH_DOOR":
                         if time.time() - last_prompt_log > 2.0:
@@ -1030,6 +1033,25 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if bot_state == "COMPASS_RUSH" and toilet_box and not valid_door_box:
                         if abs(toilet_box['x'] - center_x) > 800:
                             toilet_box = None
+
+                # 在尚能看到完整门时记录对齐，贴脸后允许短时沿用。
+                if bot_state not in ('APPROACH_DOOR', 'VERIFY_DOOR'):
+                    last_entry_alignment = None
+                    entry_alignment_frames = 0
+                if bot_state == 'APPROACH_DOOR' and valid_door_box is not None:
+                    d = valid_door_box
+                    # 占满画面的检测框可能已被裁切，不用它覆盖之前的可靠记录。
+                    if d['h'] < h * 0.8:
+                        aligned = (abs(d['x'] - center_x) <= min(20.0, d['w'] * 0.1)
+                                   and d['w'] / d['h'] >= 0.45
+                                   and not keys_pressed['a'] and not keys_pressed['d'])
+                        if aligned:
+                            entry_alignment_frames += 1
+                            if entry_alignment_frames >= 2:
+                                last_entry_alignment = time.time()
+                        else:
+                            entry_alignment_frames = 0
+                            last_entry_alignment = None
 
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
@@ -1458,6 +1480,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             continue
                     else:
                         diff_door = valid_door_box['x'] - center_x
+                        if abs(diff_door) >= 20:
+                            last_entry_alignment = None
+                            entry_alignment_frames = 0
                         door_h = valid_door_box['h']  
                         aspect_ratio = valid_door_box['w'] / door_h  
                         
@@ -1499,6 +1524,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 has_aligned_door = True
 
                         if not has_aligned_door:
+                            last_entry_alignment = None
+                            entry_alignment_frames = 0
                             set_key('w', False)
                             set_key('shift', False)
                             set_key('ctrl', True)
@@ -1599,38 +1626,53 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if found_f:
                         if verifying_door or found_door:
                             stop_all()
-                            entry_door = self._find_entry_door(c_img)
-                            if entry_door is None:
-                                verify_count = 0
+                            if last_entry_alignment is not None and time.time() - last_entry_alignment <= 3.0:
+                                # 只复核 F 提示，不要求贴脸后再次识别完整门。
+                                found_door = True
+                            else:
+                                entry_door = self._find_entry_door(c_img)
+                                if entry_door is None:
+                                    verify_count = 0
+                                    last_entry_alignment = None
+                                    entry_alignment_frames = 0
+                                    print("\n🚪 [进门对齐] 无近期对齐记录，短暂后退恢复门的视野。")
+                                    try:
+                                        set_key('s', True)
+                                        time.sleep(0.2)
+                                    finally:
+                                        set_key('s', False)
+                                    bot_state = 'APPROACH_DOOR'
+                                    has_aligned_door = False
+                                    last_action_log = ''
+                                    continue
+                                entry_diff = entry_door['x'] - c_img.shape[1] / 2
+                                entry_ratio = entry_door['w'] / entry_door['h']
+                                center_tolerance = min(40.0, entry_door['w'] * 0.15)
                                 if time.time() - last_entry_log > 1.0:
-                                    print("\n🚪 [进门对齐] 门框暂时不可见，保持停步，不发送 F。")
+                                    print(f"\n🚪 [进门对齐] 门框偏差:{entry_diff:.1f}px "
+                                          f"容差:{center_tolerance:.1f}px 宽高比:{entry_ratio:.2f}/0.45")
                                     last_entry_log = time.time()
-                                continue
-                            entry_diff = entry_door['x'] - c_img.shape[1] / 2
-                            entry_ratio = entry_door['w'] / entry_door['h']
-                            center_tolerance = min(40.0, entry_door['w'] * 0.15)
-                            if time.time() - last_entry_log > 1.0:
-                                print(f"\n🚪 [进门对齐] 门框偏差:{entry_diff:.1f}px "
-                                      f"容差:{center_tolerance:.1f}px 宽高比:{entry_ratio:.2f}/0.45")
-                                last_entry_log = time.time()
-                            if abs(entry_diff) > center_tolerance:
-                                verify_count = 0
-                                entry_last_ratio = None
-                                self.rotate_mouse_raw(int(max(-80, min(80, entry_diff * 0.4))), 0)
-                                continue
-                            if entry_ratio < 0.45:
-                                verify_count = 0
-                                if entry_last_ratio is not None and entry_ratio < entry_last_ratio - 0.02:
-                                    skew_dir = 'd' if skew_dir == 'a' else 'a'
-                                entry_last_ratio = entry_ratio
-                                try:
-                                    set_key('ctrl', True)
-                                    set_key(skew_dir, True)
-                                    time.sleep(0.08)
-                                finally:
-                                    set_key(skew_dir, False)
-                                    set_key('ctrl', False)
-                                continue
+                                if abs(entry_diff) > center_tolerance:
+                                    verify_count = 0
+                                    last_entry_alignment = None
+                                    entry_last_ratio = None
+                                    self.rotate_mouse_raw(int(max(-80, min(80, entry_diff * 0.4))), 0)
+                                    continue
+                                if entry_ratio < 0.45:
+                                    last_entry_alignment = None
+                                    verify_count = 0
+                                    if entry_last_ratio is not None and entry_ratio < entry_last_ratio - 0.02:
+                                        skew_dir = 'd' if skew_dir == 'a' else 'a'
+                                    entry_last_ratio = entry_ratio
+                                    try:
+                                        set_key('ctrl', True)
+                                        set_key(skew_dir, True)
+                                        time.sleep(0.08)
+                                    finally:
+                                        set_key(skew_dir, False)
+                                        set_key('ctrl', False)
+                                    continue
+                                last_entry_alignment = time.time()
                             found_door = True
                         verify_count += 1
                         if verify_count >= 2:

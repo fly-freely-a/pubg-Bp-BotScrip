@@ -6,7 +6,30 @@ from unittest.mock import Mock
 
 
 class DoorEntryTests(unittest.TestCase):
-    def replay(self, door, verify_count=1):
+    def test_approach_records_alignment_and_invalidates_visible_misalignment(self):
+        path = Path(__file__).resolve().parents[1] / 'logic' / 'bot.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        record = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                      and ast.unparse(n.test) == "bot_state == 'APPROACH_DOOR' and valid_door_box is not None")
+        code = compile(ast.Module(body=[record], type_ignores=[]), str(path), 'exec')
+        namespace = dict(bot_state='APPROACH_DOOR', h=1080, center_x=960,
+                         valid_door_box=dict(x=960, w=240, h=400),
+                         keys_pressed={'a': False, 'd': False},
+                         entry_alignment_frames=0, last_entry_alignment=None,
+                         time=SimpleNamespace(time=lambda: 100.0))
+        exec(code, namespace)
+        self.assertIsNone(namespace['last_entry_alignment'])
+        exec(code, namespace)
+        self.assertEqual(namespace['last_entry_alignment'], 100.0)
+        # 贴脸导致检测框裁切，不覆盖已确认的对齐结果。
+        namespace['valid_door_box'] = dict(x=1100, w=240, h=1050)
+        exec(code, namespace)
+        self.assertEqual(namespace['last_entry_alignment'], 100.0)
+        namespace['valid_door_box'] = dict(x=1100, w=240, h=400)
+        exec(code, namespace)
+        self.assertIsNone(namespace['last_entry_alignment'])
+
+    def replay(self, door, verify_count=1, last_alignment=None):
         path = Path(__file__).resolve().parents[1] / 'logic' / 'bot.py'
         tree = ast.parse(path.read_text(encoding='utf-8'))
         method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
@@ -31,6 +54,7 @@ class DoorEntryTests(unittest.TestCase):
                                              minMaxLoc=lambda _: (0, 0.9, None, None)),
                          verify_count=verify_count, verifying_door=True, entry_last_ratio=None,
                          last_entry_log=100.0,
+                         last_entry_alignment=last_alignment,
                          skew_dir='a', stop_all=Mock(), set_key=Mock(),
                          pydirectinput=inputs)
         exec(compile(module, str(path), 'exec'), namespace)
@@ -50,10 +74,24 @@ class DoorEntryTests(unittest.TestCase):
         namespace['set_key'].assert_any_call('a', False)
         self.assertEqual(namespace['verify_count'], 0)
 
-    def test_missing_door_stops_and_does_not_open(self):
+    def test_missing_door_without_alignment_backs_up_to_reacquire(self):
         namespace, _, inputs = self.replay(None)
         inputs.press.assert_not_called()
         self.assertEqual(namespace['verify_count'], 0)
+        namespace['set_key'].assert_any_call('s', True)
+        namespace['set_key'].assert_any_call('s', False)
+        self.assertEqual(namespace['bot_state'], 'APPROACH_DOOR')
+
+    def test_recent_alignment_allows_opening_when_close_door_disappears(self):
+        namespace, controller, inputs = self.replay(None, last_alignment=99.0)
+        inputs.press.assert_called_once_with('f')
+        controller._find_entry_door.assert_not_called()
+        self.assertEqual(namespace['bot_state'], 'ITEM_PICKUP')
+
+    def test_expired_alignment_does_not_allow_blind_opening(self):
+        namespace, _, inputs = self.replay(None, last_alignment=90.0)
+        inputs.press.assert_not_called()
+        self.assertEqual(namespace['bot_state'], 'APPROACH_DOOR')
 
     def test_aligned_door_requires_two_checks_before_opening(self):
         door = dict(x=960, y=500, w=240, h=400)
