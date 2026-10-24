@@ -103,7 +103,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.initial_target_coords = None
 
         keyboard.add_hotkey('home', self.toggle_pause)
-        print("💡 快捷键已启动：【HOME】暂停/开始，【END】强制退出")
+        keyboard.add_hotkey('end', self.emergency_stop)
+        keyboard.add_hotkey('ctrl+shift+f12', self.emergency_stop)
+        print("💡 快捷键已启动：【HOME】暂停/开始，【END】或【Ctrl+Shift+F12】紧急停止")
         print("=" * 60)
 
     def init_yolo(self):
@@ -179,6 +181,26 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             dist = math.hypot(target_x - user_x, target_y - user_y)
             return dist
         return None
+
+    def emergency_stop(self):
+        """直接结束进程，避免只退出热键线程或等待业务循环检查停止标志。"""
+        self.running = False
+        self.is_paused = True
+        try:
+            pydirectinput.FAILSAFE = False
+            for key in pydirectinput.KEYBOARD_MAPPING:
+                try:
+                    pydirectinput.keyUp(key, _pause=False)
+                except Exception:
+                    pass
+            for button in ('left', 'right', 'middle'):
+                try:
+                    pydirectinput.mouseUp(button=button, _pause=False)
+                except Exception:
+                    pass
+            self.toggle_desktop_icons(show=True)
+        finally:
+            os._exit(0)
 
     def toggle_pause(self):
         self.is_paused = not self.is_paused
