@@ -49,8 +49,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.running = True
         self.is_paused = False
         # 动态绑定 Config 中的变量
-        self.image_dir = Config.IMAGE_DIR
-        self.model_path = Config.MODEL_PATH
+        self.image_dir = str((Config.BASE_DIR / Config.IMAGE_DIR).resolve())
+        self.model_path = str((Config.BASE_DIR / Config.MODEL_PATH).resolve())
         self.ref_width = Config.REF_WIDTH
         self.ref_height = Config.REF_HEIGHT
         self.MAP_SIZE = Config.MAP_SIZE

@@ -50,20 +50,23 @@ pip install torch torchvision torchaudio --index-url [https://download.pytorch.o
 最后config.py文件设置路径
 ## ⚙️ 核心参数配置（运行前必看 ⚠️）
 
-在首次运行脚本前，请务必先打开项目中的 `config.py` 文件，根据你本地的实际情况修改以下核心配置（参考代码中的 `class Config`）：
+默认路径使用项目自带的图片和模型，无需填写盘符。相对路径以 `config.py` 所在目录为基准，与终端启动目录无关；如使用其他资源，也可以填写本机绝对路径。
 
 ### 1. 核心配置项说明
 
 ```python
+from pathlib import Path
+
 class Config:
-    # 1. 游戏截图/图片资源存放路径
-    # ⚠️ 必须修改为你本地电脑上的绝对路径，否则程序无法读取和保存图片！
-    IMAGE_DIR = r"E:\pythonDemo\pubg\image"
+    BASE_DIR = Path(__file__).resolve().parent
+    # 1. 识图模板目录，不是截图输出目录
+    IMAGE_DIR = "image"
 
     # 2. YOLOv8 模型权重路径
     # 默认支持原生的 .pt 格式，或导出的 TensorRT .engine 加速格式（推荐路径指向你的 best 权重文件）
-    MODEL_PATH = r"E:\pythonDemo\aipubg\runs\detect\pubg_toilet_model-7\weights\best.pt"
+    MODEL_PATH = "pubg_toilet_model-7/weights/best.pt"
 
     # 3. 游戏二级密码
     # 用于全自动挂机场景下自动解锁二级密码。请填入你自己的 6 位游戏二级密码
     SECONDARY_PASSWORD = "你的二级密码"
+```
