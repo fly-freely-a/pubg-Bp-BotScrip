@@ -40,6 +40,7 @@ from ultralytics import YOLO
 from config import Config
 from core.mixins import WindowMixin, VisionMixin, MathMixin, ActionMixin
 from core.interaction import InteractionPromptMatcher
+from core.matchmaking import QueuePromptMatcher
 
 
 class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
@@ -69,6 +70,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.start_btn_template = self._load_img("start_btn.png")
         self.loading_template = self._load_img("loading.png")
         self.count4_template = self._load_img("count4.png")
+        self.match_wait_template = self._load_img("wait2.png")
+        matching_template = self._load_img('start_matching.png')
+        self.queue_matcher = QueuePromptMatcher(matching_template) if matching_template is not None else None
         self.user_template = self._load_img("user.png")
         self.feiji_template = self._load_img("feiji.png")
         self.target_template = self._load_img("target.png")
@@ -281,11 +285,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             return True
         return False
 
-    def handle_endgame(self, game_img, window_info):
+    def handle_endgame(self, game_img, window_info, allow_cancel=True):
         if game_img is None: return False
         h, w = game_img.shape[:2]
         bottom_half = game_img[int(h * 0.4):h, 0:w]
         for btn_name in ['err', 'confirm', 'close', 'next', 'back','cancel']:
+            if btn_name == 'cancel' and not allow_cancel:
+                continue
             found, conf, pos = self.find_image(bottom_half, btn_name)
             if found:
                 print(f"\n   💀 发现脱战按钮 [{btn_name}.png]！执行脱战！")
@@ -845,6 +851,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # 罗盘黄点记忆变量
         last_valid_tx_compass = None
         last_valid_tx_time = time.time()
+        last_target_search_log = 0.0
+        last_target_search_snapshot = 0.0
 
         print("🏃‍♂️ 开启狂奔：距离 >20px 纯看罗盘，<=20px 激活视觉索敌！")
 
@@ -969,9 +977,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # YOLO 视觉逻辑
                 # ==========================================
                 toilet_box, valid_door_box = None, None
+                raw_detection_count = 0
 
                 if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
                     results = self.yolo_model.predict(source=game_img, conf=0.5, classes=[0, 1], verbose=False,half=True, imgsz=640,)
+                    raw_detection_count = sum(len(r.boxes) for r in results)
                     toilet_boxes, door_boxes = [], []
 
                     for r in results:
@@ -1031,6 +1041,29 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
 
                 if bot_state == "COMPASS_RUSH":
+                    # 已到标点却没有有效视觉目标：停步搜索，不继续撞向黄点或随机跳跃。
+                    # 有效目标已在上方切换到 RUNNING / APPROACH_DOOR 并 continue。
+                    if entered_target_zone and dist is not None and dist <= 30.0:
+                        stop_all()
+                        if time.time() - last_target_search_log > 2.0:
+                            print(f"\n🔎 [近点搜索] 距标点:{dist:.1f}px 模型已加载:{self.yolo_model is not None} "
+                                  f"原始候选:{raw_detection_count} 有效目标:0；停步转动视角寻找厕所/门")
+                            last_target_search_log = time.time()
+                        if time.time() - last_target_search_snapshot > 10.0:
+                            debug_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                                     'debug', 'target_search')
+                            try:
+                                os.makedirs(debug_dir, exist_ok=True)
+                                ok, encoded = cv2.imencode('.png', game_img)
+                                if not ok:
+                                    raise RuntimeError('截图编码失败')
+                                encoded.tofile(os.path.join(debug_dir, 'no_target.png'))
+                                print(f"\n📷 [近点搜索] 未选出有效目标的画面已保存至 {debug_dir}")
+                            except Exception as e:
+                                print(f"\n⚠️ 保存近点搜索截图失败: {e}")
+                            last_target_search_snapshot = time.time()
+                        self.rotate_mouse_raw(45, 0)
+                        continue
                     tx_compass = self.find_target_on_compass(game_img)
                     if tx_compass is not None:
                         last_valid_tx_compass = tx_compass
@@ -1663,6 +1696,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
     # 主大厅循环保持不变
     # ----------------------------------------------------------------------
     def run(self):
+        if self.queue_matcher is None:
+            raise RuntimeError('缺少 start_matching.png 排队模板，请检查 Config.IMAGE_DIR')
         print("\n" + "=" * 60)
         print("🎮 绝地求生 自动匹配挂机引擎启动")
         print("=" * 60)
@@ -1678,16 +1713,20 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         # 🌟 1. 初始化看门狗定时器
         watchdog_timer = time.time()
+        match_phase = 'UNKNOWN'
+        match_confirmation_started = 0.0
+        last_queue_log = 0.0
 
         try:
             while self.running:
                 if self.is_paused: time.sleep(1); continue
                 if keyboard.is_pressed('end'): break
 
-                # 🌟 2. 核心大看门狗巡逻：超过 5 分钟无进展就无情重启
-                if time.time() - watchdog_timer > 120:
-                    print("\n🚨 [超时看门狗] 5分钟无进展(疑似卡死/黑屏/断网)，执行拔管重连！")
+                # 排队耗时不代表游戏卡死，不能使用对局识别超时强杀游戏。
+                if match_phase != 'QUEUED' and time.time() - watchdog_timer > 120:
+                    print("\n🚨 [超时看门狗] 非排队阶段120秒无进展，尝试重新启动游戏。")
                     self.force_restart_pubg()
+                    match_phase = 'UNKNOWN'
                     watchdog_timer = time.time()
                     window_lost_count = 0  # 重启后重置窗口计数
                     continue
@@ -1700,6 +1739,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         # 🚀 3. 闪退拦截：不再关闭脚本，而是直接强拉游戏！
                         print("\n💥 [闪退拦截] 确认游戏已经崩溃或被关闭！正在紧急重新拉起...")
                         self.force_restart_pubg()
+                        match_phase = 'UNKNOWN'
 
                         # 🌟 重拉游戏后，必须重置这两个计数器
                         window_lost_count = 0
@@ -1713,7 +1753,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 game_img, window_info = self.capture_game_screen()
                 if game_img is None or window_info is None: time.sleep(2); continue
 
-                if self.handle_endgame(game_img, window_info):
+                queue_score, _, _ = self.queue_matcher.match(game_img)
+                if queue_score >= 0.80:
+                    if match_phase != 'QUEUED' or time.time() - last_queue_log > 5.0:
+                        print(f"\n⏳ [排队确认] 检测到开始匹配提示，得分:{queue_score:.3f}；等待玩家。")
+                        last_queue_log = time.time()
+                    match_phase = 'QUEUED'
+                    watchdog_timer = time.time()
+                    time.sleep(2)
+                    continue
+
+                if self.handle_endgame(game_img, window_info,
+                                       allow_cancel=match_phase not in ('QUEUED', 'MATCH_PENDING')):
                     self.has_marked_this_match = False
                     self.is_waiting_for_jump = False
                     self.best_jump_point_coords = None
@@ -1727,10 +1778,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 f_load, _, _ = self.find_image(game_img, 'loading')
                 f_naozhong, _, _ = self.find_image(game_img, 'naozhong')
                 f_count4, c_count4, _ = self.find_image(game_img, 'count4')
+                f_match_wait, _, _ = self.find_image(game_img, 'match_wait')
                 now = time.strftime("%H:%M:%S")
 
                 if f_start:
-                    print(f"\n[{now}] 🖱️ 检测到【大厅界面】(得分:{c_start:.2f})，开始【双击】匹配")
+                    match_phase = 'LOBBY'
+                    print(f"\n[{now}] 🖱️ 检测到【大厅界面】(得分:{c_start:.2f})，点击开始并等待排队确认")
                     # 🌟 4. 喂狗：看到开始按钮，说明游戏健康，重置看门狗寿命
                     watchdog_timer = time.time()
 
@@ -1749,15 +1802,35 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     win32api.SetCursorPos((win_x + bor_x + real_click_x, win_y + bor_y + real_click_y))
                     time.sleep(0.1);
                     pyautogui.click();
-                    time.sleep(0.5);
-                    pyautogui.click();
+                    match_phase = 'MATCH_PENDING'
+                    match_confirmation_started = time.time()
                     time.sleep(5)
 
                 elif f_load:
+                    if match_phase != 'LOADING':
+                        watchdog_timer = time.time()
+                    match_phase = 'LOADING'
                     print(f"[{now}] ⏳ 画面加载中...", end="\r", flush=True)
                     time.sleep(3)
 
+                elif match_phase in ('QUEUED', 'MATCH_PENDING') and not (f_match_wait or f_count4 or f_naozhong):
+                    if match_phase == 'QUEUED':
+                        match_phase = 'MATCH_PENDING'
+                        match_confirmation_started = time.time()
+                    if time.time() - match_confirmation_started > 15:
+                        print("\n⚠️ 无法确认排队或进入对局，已暂停自动操作；请检查游戏画面，HOME 可重试。")
+                        self.is_paused = True
+                        match_confirmation_started = time.time()
+                    else:
+                        print(f"[{now}] ⏳ 等待排队提示或对局画面确认 (排队得分:{queue_score:.3f})，不发送 M。",
+                              end="\r", flush=True)
+                    time.sleep(2)
+
                 elif not self.has_marked_this_match:
+                    if match_phase in ('QUEUED', 'MATCH_PENDING', 'LOADING'):
+                        print(f"\n[{now}] ✅ 检测到加载结束或对局标志，开始对局识别。")
+                        watchdog_timer = time.time()
+                        match_phase = 'IN_MATCH'
                     if not f_naozhong:
                         print(f"[{now}] 🗺️ 正在试探：按 M 键打开地图... (等待 naozhong.png)    ", end="\r", flush=True)
                         pydirectinput.keyDown('m');

@@ -24,3 +24,4 @@ dist/
 
 # 本地交互诊断截图
 /debug/interaction/
+/debug/target_search/

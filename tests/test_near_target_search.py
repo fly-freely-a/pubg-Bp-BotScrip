@@ -1,0 +1,45 @@
+import ast
+from pathlib import Path
+from types import SimpleNamespace
+import unittest
+from unittest.mock import Mock
+
+
+class NearTargetSearchTests(unittest.TestCase):
+    def test_near_marker_without_visual_target_scans_instead_of_running_or_jumping(self):
+        path = Path(__file__).resolve().parents[1] / 'logic' / 'bot.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        function = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                        and n.name == 'start_auto_run')
+        branch = next(n for n in ast.walk(function) if isinstance(n, ast.If)
+                      and ast.unparse(n.test) == "bot_state == 'COMPASS_RUSH'"
+                      and any(isinstance(a, ast.Assign)
+                              and any(isinstance(t, ast.Name) and t.id == 'tx_compass'
+                                      for t in a.targets) for a in n.body))
+        branch = ast.If(test=branch.test, body=branch.body, orelse=[])
+        loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()),
+                       iter=ast.Tuple(elts=[ast.Constant(0)], ctx=ast.Load()),
+                       body=[branch], orelse=[])
+        module = ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[]))
+        controller = SimpleNamespace(find_target_on_compass=Mock(return_value=960),
+                                     rotate_mouse_raw=Mock(), last_scrape_time=0)
+        inputs = SimpleNamespace(press=Mock())
+        set_key = Mock()
+        stop = Mock()
+        namespace = dict(bot_state='COMPASS_RUSH', entered_target_zone=True,
+                         dist=10.0, self=controller, game_img=None,
+                         time=SimpleNamespace(time=lambda: 100.0, sleep=Mock()),
+                         center_x=960, is_sprinting=False, keys_pressed={'w': False},
+                         set_key=set_key, stop_all=stop, pydirectinput=inputs,
+                         random=SimpleNamespace(choice=lambda _: 'a'),
+                         last_target_search_log=100.0,
+                         last_target_search_snapshot=100.0)
+        exec(compile(module, str(path), 'exec'), namespace)
+        stop.assert_called_once()
+        controller.rotate_mouse_raw.assert_called_once()
+        set_key.assert_not_called()
+        inputs.press.assert_not_called()
+
+
+if __name__ == '__main__':
+    unittest.main()

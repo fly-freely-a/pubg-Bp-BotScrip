@@ -191,6 +191,7 @@ class VisionMixin:
             'start_btn': getattr(self, 'start_btn_template', None),
             'loading': getattr(self, 'loading_template', None),
             'count4': getattr(self, 'count4_template', None),
+            'match_wait': getattr(self, 'match_wait_template', None),
             'target': getattr(self, 'target_template', None),
             'naozhong': getattr(self, 'naozhong_template', None),
             'leave_game': getattr(self, 'leave_game_template', None),
