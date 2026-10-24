@@ -3,12 +3,12 @@ import cv2
 
 
 class InteractionPromptMatcher:
-    def __init__(self, template, scales=(0.65, 0.75, 0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0)):
+    def __init__(self, template):
         if template is None or template.size == 0:
             raise ValueError('无法加载 F.png 交互模板，请检查 Config.IMAGE_DIR')
         gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
         self.templates = []
-        for scale in scales:
+        for scale in (0.65, 0.75, 0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0):
             resized = cv2.resize(gray, None, fx=scale, fy=scale)
             self.templates.append((scale, resized))
 
