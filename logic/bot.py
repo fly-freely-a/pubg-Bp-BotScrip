@@ -752,6 +752,24 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # 🌟 修复落地卡死 bug，交还控制权给主循环
         return True
 
+    def _find_entry_door(self, frame):
+        """开门前用当前画面重新定位门，避免使用上一帧的对齐状态。"""
+        if self.yolo_model is None:
+            return None
+        door_id = self.door_class_id
+        results = self.yolo_model.predict(source=frame, conf=0.55, classes=[door_id],
+                                          verbose=False, half=True, imgsz=640)
+        doors = []
+        for result in results:
+            for box in result.boxes:
+                if int(box.cls[0].item()) != door_id or box.conf[0].item() <= 0.55:
+                    continue
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                if x2 > x1 and y2 - y1 > frame.shape[0] * 0.1:
+                    doors.append(dict(x=(x1 + x2) / 2, y=(y1 + y2) / 2,
+                                      w=x2 - x1, h=y2 - y1))
+        return max(doors, key=lambda d: d['w'] * d['h']) if doors else None
+
     def start_auto_run(self, window_info=None):
         import pydirectinput
 
@@ -839,6 +857,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         last_space_time = 0.0
         verify_count = 0
+        verifying_door = False
+        entry_last_ratio = None
+        last_entry_log = 0.0
 
         last_afk_move_time = time.time()
 
@@ -966,8 +987,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if current_f_score > f_threshold and not ignore_f:
                         print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 强行打断动作，进入核验！")
                         stop_all()
+                        verifying_door = bot_state == 'APPROACH_DOOR' or time.time() - global_last_door_time < 1.0
                         bot_state = "VERIFY_DOOR"
-                        verify_count = 1
+                        verify_count = 0
+                        entry_last_ratio = None
                         global_progress_time = time.time()
                         continue
                 # ==========================================
@@ -1059,7 +1082,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             except Exception as e:
                                 print(f"\n⚠️ 保存近点搜索截图失败: {e}")
                             last_target_search_snapshot = time.time()
-                        self.rotate_mouse_raw(45, 0)
+                        self.rotate_mouse_raw(150, 0)
                         continue
                     tx_compass = self.find_target_on_compass(game_img)
                     if tx_compass is not None:
@@ -1573,12 +1596,47 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             found_door = True
                             break
                     if found_f:
+                        if verifying_door or found_door:
+                            stop_all()
+                            entry_door = self._find_entry_door(c_img)
+                            if entry_door is None:
+                                verify_count = 0
+                                if time.time() - last_entry_log > 1.0:
+                                    print("\n🚪 [进门对齐] 门框暂时不可见，保持停步，不发送 F。")
+                                    last_entry_log = time.time()
+                                continue
+                            entry_diff = entry_door['x'] - c_img.shape[1] / 2
+                            entry_ratio = entry_door['w'] / entry_door['h']
+                            center_tolerance = min(40.0, entry_door['w'] * 0.15)
+                            if time.time() - last_entry_log > 1.0:
+                                print(f"\n🚪 [进门对齐] 门框偏差:{entry_diff:.1f}px "
+                                      f"容差:{center_tolerance:.1f}px 宽高比:{entry_ratio:.2f}/0.45")
+                                last_entry_log = time.time()
+                            if abs(entry_diff) > center_tolerance:
+                                verify_count = 0
+                                entry_last_ratio = None
+                                self.rotate_mouse_raw(int(max(-80, min(80, entry_diff * 0.4))), 0)
+                                continue
+                            if entry_ratio < 0.45:
+                                verify_count = 0
+                                if entry_last_ratio is not None and entry_ratio < entry_last_ratio - 0.02:
+                                    skew_dir = 'd' if skew_dir == 'a' else 'a'
+                                entry_last_ratio = entry_ratio
+                                try:
+                                    set_key('ctrl', True)
+                                    set_key(skew_dir, True)
+                                    time.sleep(0.08)
+                                finally:
+                                    set_key(skew_dir, False)
+                                    set_key('ctrl', False)
+                                continue
+                            found_door = True
                         verify_count += 1
                         if verify_count >= 2:
                             if found_door:
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
                                 pydirectinput.press('f')
-                                time.sleep(0.4)
+                                time.sleep(0.6)
                                 bot_state = "ITEM_PICKUP"
                             else:
                                 print(f"   📦 核验为【物资】！(F:{score_f:.2f}, 无门) 直接按 F 拾取！")
