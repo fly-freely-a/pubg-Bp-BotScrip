@@ -30,7 +30,7 @@ if __name__ == "__main__":
         while True:
             # 🌟 核心修改：使用原生 input() 完美兼容所有手机远程控制软件！
             # 注意：手机端输入 1 之后，记得按一下手机键盘上的【回车/发送】键
-            choice = input("等待输入... (请输入 1 或 2 并按回车): ").strip()
+            choice = input("等待输入... (回车默认 1；输入 2 进入测试模式): ").strip() or '1'
             controller.init_yolo()
             if choice == '1':
                 print("\n🚀 正在为您启动全自动挂机主循环...")
