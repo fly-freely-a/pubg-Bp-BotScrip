@@ -1582,6 +1582,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     print("\n   ✅ 突入完成！执行搜刮战术动作！")
                     stop_all()
 
+                    pydirectinput.press('tab')
+                    time.sleep(1.0)
+                    if hasattr(self, 'pickup_all_items_in_tab'):
+                        self.pickup_all_items_in_tab(current_window_info)
+                    pydirectinput.press('tab')
+                    time.sleep(1.0)
+
                     set_key('a', True)
                     time.sleep(0.6)
                     set_key('a', False)
