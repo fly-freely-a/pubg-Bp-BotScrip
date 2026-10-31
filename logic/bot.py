@@ -785,6 +785,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         is_sprinting = False
 
         def set_key(key, state):
+            # 近点范围统一禁止疾跑，包括黄点/距离暂时识别失败的分支。
+            if key == 'shift' and state and entered_target_zone:
+                state = False
             if keys_pressed[key] != state:
                 if state:
                     pydirectinput.keyDown(key)
@@ -849,7 +852,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_valid_tx_compass = None
         last_valid_tx_time = time.time()
 
-        print("🏃‍♂️ 开启狂奔：距离 >20px 纯看罗盘，<=20px 激活视觉索敌！")
+        print("🏃‍♂️ 开启狂奔：距离 >30px 纯看罗盘，<=30px 激活视觉并解除疾跑！")
 
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         time.sleep(0.05)
@@ -912,7 +915,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                     if dist <= 30.0:
                         if not entered_target_zone:
-                            print("\n📍 已抵达目标 20px 核心区！正式激活【YOLO视觉】逻辑！")
+                            print("\n📍 已抵达目标 30px 核心区！正式激活【YOLO视觉】逻辑！")
                             entered_target_zone = True
                     elif dist > 30.0:
                         if entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
@@ -1051,7 +1054,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if abs_diff > 3:
                             self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
 
-                        if dist is not None and dist <= 30.0:
+                        if entered_target_zone:
                             if is_sprinting:
                                 print("   🚶 进圈解除疾跑，静步索敌...")
                                 set_key('shift', False)
@@ -1108,7 +1111,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         time_since_last_seen = time.time() - last_valid_tx_time
 
                         if time_since_last_seen < 1.0:
-                            if not is_sprinting:
+                            if entered_target_zone:
+                                set_key('shift', False)
+                                is_sprinting = False
+                                set_key('w', True)
+                            elif not is_sprinting:
                                 set_key('w', True)
                                 set_key('shift', True)
                                 is_sprinting = True
@@ -1153,28 +1160,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 global_progress_time = time.time()
                                 continue
                         else:
-                            last_h = getattr(self, 'last_known_toilet_h', 0)
-                            if last_h < h * 0.35:
-                                if last_action_log != "BLIND_RUSH_FAR":
-                                    print("   👀 远距离视野闪断！保持惯性狂奔冲刺...")
-                                    last_action_log = "BLIND_RUSH_FAR"
-
-                                if not is_sprinting or keys_pressed['ctrl']:
-                                    set_key('ctrl', False)
-                                    set_key('w', False)  
-                                    time.sleep(0.02)
-                                    set_key('shift', True)
-                                    set_key('w', True)
-                                    is_sprinting = True
-                            else:
-                                if last_action_log != "BLIND_TOUCH_CLOSE":
-                                    print("   👀 近战视野死角！保持记忆慢速盲摸...")
-                                    last_action_log = "BLIND_TOUCH_CLOSE"
-                                set_key('shift', False)
-                                set_key('ctrl', True)
-                                set_key('w', True)
-                                is_sprinting = False
-                            continue  
+                            if last_action_log != "LOST_TOILET_STOP":
+                                print("   🛑 厕所暂时丢失，停步等待重新识别，不再盲目冲刺...")
+                                last_action_log = "LOST_TOILET_STOP"
+                            stop_all()
+                            continue
                     diff_x = toilet_box['x'] - center_x
                     if abs(diff_x) > 100.0:
                         if last_action_log != "VISUAL_ADJUST":
