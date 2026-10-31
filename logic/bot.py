@@ -933,12 +933,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
                     ignore_f = False
-                    if bot_state in ["RUNNING", "CIRCLING"]:
-                        if time.time() - global_last_door_time > 3:
-                            ignore_f = True
-
-                    if bot_state == "APPROACH_DOOR" and not has_aligned_door:
-                        ignore_f = True
+                    # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
+                    # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
                     if bot_state == 'APPROACH_DOOR':
                         reason = ('未加载F模板' if f_tmpl is None else
                                   '对齐条件拦截' if ignore_f else
@@ -957,12 +953,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         #     if door_recorder.submit(game_img, metadata):
                         #         last_door_snapshot = frame_captured_at
                     if current_f_score > 0.72 and not ignore_f:
-                        print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 强行打断动作，进入核验！")
+                        print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 立即停步并交互！")
                         stop_all()
                         bot_state = "VERIFY_DOOR"
                         verify_count = 1
                         global_progress_time = time.time()
-                        continue
+                        # 直接用当前帧核验并按 F，不等待下一帧，避免错过路边物资。
                 # ==========================================
                 # YOLO 视觉逻辑
                 # ==========================================
@@ -1514,9 +1510,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             smooth_glide_mouse(diff_door)
                 elif bot_state == "VERIFY_DOOR":
                     global_progress_time = time.time()
-                    time.sleep(0.1)
-                    c_img, _ = self.capture_game_screen()
-                    if c_img is None: continue
+                    c_img = game_img
                     found_f = False
                     found_door = False
                     score_f = 0.0
@@ -1530,8 +1524,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             found_door = True
                             break
                     if found_f:
-                        verify_count += 1
-                        if verify_count >= 2:
+                        if verify_count >= 1:
                             if found_door:
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
