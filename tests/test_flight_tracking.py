@@ -35,7 +35,7 @@ class FlightTrackingTests(unittest.TestCase):
         controller.find_image = lambda frame, name: (True, 1.0, (0,0)) if name == 'naozhong' else (False, 0., None)
         controller.handle_endgame = lambda *args: False
         controller.find_plane_seats = Mock(side_effect=lambda frame: (seats(clock.now) if callable(seats) else seats, 1.0))
-        controller.find_flight_plane = Mock(return_value=(plane, .99 if plane else .3, (112,100) if plane else None))
+        controller.find_user_on_map = Mock(return_value=(plane, (112,100) if plane else None, .9 if plane else .3, 'color_logic'))
         controller.execute_ai_bot_behavior = Mock()
         namespace = dict(time=SimpleNamespace(time=lambda:clock.now,sleep=sleep), math=math,
                          win32api=api, win32con=constants,pydirectinput=inputs)
@@ -47,7 +47,7 @@ class FlightTrackingTests(unittest.TestCase):
     def test_no_seats_never_jumps_even_if_position_is_near_target(self):
         inputs, controller = self.replay(False, True)
         self.assertNotIn(('f',), [call.args for call in inputs.keyDown.call_args_list])
-        controller.find_flight_plane.assert_not_called()
+        controller.find_user_on_map.assert_not_called()
         controller.execute_ai_bot_behavior.assert_not_called()
 
     def test_boarded_but_plane_outside_map_does_not_timeout_jump(self):
@@ -62,6 +62,11 @@ class FlightTrackingTests(unittest.TestCase):
 
     def test_single_seat_false_positive_does_not_confirm_boarding(self):
         inputs, controller = self.replay(lambda now: now < 102.1, True)
-        controller.find_flight_plane.assert_not_called()
+        controller.find_user_on_map.assert_not_called()
         controller.execute_ai_bot_behavior.assert_not_called()
+
+    def test_two_seat_confirmations_start_original_user_tracking(self):
+        _, controller = self.replay(True, True)
+        self.assertEqual(controller.find_plane_seats.call_count, 2)
+        controller.find_user_on_map.assert_called()
 

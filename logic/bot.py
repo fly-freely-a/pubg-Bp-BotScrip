@@ -448,9 +448,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             if not has_boarded_plane:
                 found_seats, seat_score = self.find_plane_seats(game_img)
                 seat_confirmations = seat_confirmations + 1 if found_seats else 0
-                if seat_confirmations < 3:
+                if seat_confirmations < 2:
                     if time.time() - last_log_print_time >= 1:
-                        print(f"   [登机确认] 座位得分:{seat_score:.2f} 连续确认:{seat_confirmations}/3，保持等待")
+                        print(f"   [登机确认] 座位得分:{seat_score:.2f} 连续确认:{seat_confirmations}/2，保持等待")
                         last_log_print_time = time.time()
                     time.sleep(0.2)
                     continue
@@ -460,7 +460,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
             mx, my = new_window_info['map_offset']
             map_img = game_img[my:my + self.MAP_SIZE, mx:mx + self.MAP_SIZE]
-            user_found, plane_score, user_pos = self.find_flight_plane(map_img)
+            # 恢复原来的 User 模板/黄色圆圈定位，但只在座位图确认登机后使用。
+            user_found, user_pos, plane_score, position_source = self.find_user_on_map(map_img)
+            user_found = user_found and plane_score >= 0.89
             now = time.time()
             if user_found and last_user_pos is not None:
                 elapsed = now - last_user_pos_time
@@ -470,10 +472,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             if not user_found:
                 plane_confirmations = 0
                 fly_past_counter = 0
-                # 未曾追踪到飞机或暂时丢失，都不能依据黄色区域/丢失超时强跳。
+                # 没有有效位置或暂时丢失时保持等待，不以超时触发跳伞。
                 last_user_pos = None
                 if now - last_log_print_time >= 1:
-                    print(f"   [地图飞机] 得分:{plane_score:.2f}，等待可信飞机位置，不触发跳伞")
+                    print(f"   [地图定位] 来源:{position_source} 得分:{plane_score:.2f}，等待有效位置，不触发跳伞")
                     last_log_print_time = now
                 time.sleep(0.1)
                 continue
