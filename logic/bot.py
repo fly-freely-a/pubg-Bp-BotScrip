@@ -336,9 +336,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             print(f"   🎯 已直接标记精确坐标点: {best_target['name']}")
             self.initial_target_coords = best_coords
             self.current_target_id = best_target['id']
-            if min_dist > 100.0:
+            if min_dist > 120.0:
                 print(f"\n⛔ 警告: 目标点 {best_target['name']} 理论最短距离为 {min_dist:.1f}px")
-                print("⛔ 距离超过战术底线 (100px)！航线过偏，准备主动秒退本局...")
+                print("⛔ 距离超过战术底线 (120px)！航线过偏，准备主动秒退本局...")
                 pydirectinput.keyDown('m');
                 time.sleep(0.1);
                 pydirectinput.keyUp('m');
