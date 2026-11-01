@@ -39,3 +39,27 @@ class NearTargetMovementTests(unittest.TestCase):
         exec(compile(ast.Module(body=statements, type_ignores=[]), '<lost_toilet>', 'exec'), namespace)
         stop.assert_called_once_with()
         self.assertEqual(namespace['last_action_log'], 'LOST_TOILET_STOP')
+
+    def test_toilet_approach_releases_ctrl_and_shift(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
+        branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                      and ast.unparse(n.test) == 'abs(diff_x) > 100.0')
+        keys = dict(ctrl=True, shift=True, w=False)
+        namespace = dict(set_key=lambda key, state: keys.update({key: state}),
+                         last_action_log='', print=Mock())
+        # Execute movement selection before mouse correction.
+        exec(compile(ast.Module(body=branch.orelse[:5], type_ignores=[]), '<approach>', 'exec'), namespace)
+        self.assertEqual(keys, dict(ctrl=False, shift=False, w=True))
+
+    def test_lost_door_immediately_stops(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
+        branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                      and ast.unparse(n.test) == 'time_since_lost < 2.2')
+        branch.orelse = []
+        for lost_seconds in (0.01, 0.5, 1.5):
+            stop = Mock()
+            namespace = dict(time_since_lost=lost_seconds, stop_all=stop,
+                             last_action_log='', print=Mock())
+            exec(compile(ast.Module(body=[branch], type_ignores=[]),
+                         '<lost_door>', 'exec'), namespace)
+            stop.assert_called_once_with()

@@ -1169,62 +1169,14 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             last_action_log = "VISUAL_ADJUST"
                         self.rotate_mouse_raw(int(diff_x * 0.6), 0)
                     else:
-                        toilet_ratio = toilet_box['h'] / h
+                        set_key('shift', False)
+                        set_key('ctrl', False)
+                        set_key('w', True)
+                        is_sprinting = False
+                        if last_action_log != "TOILET_WALK":
+                            print("   🚶 接近厕所，纯按 W 前进，门口对齐后再慢走...")
+                            last_action_log = "TOILET_WALK"
 
-                        if valid_door_box:
-                            set_key('shift', False)
-                            set_key('ctrl', True)
-                            set_key('w', True)
-                            if last_action_log != "FORCE_BRAKE":
-                                print("   🚨 发现门框反光！紧急降速至静步...")
-                                last_action_log = "FORCE_BRAKE"
-
-                        elif toilet_ratio < 0.25:
-                            if is_sprinting or keys_pressed['ctrl']:
-                                set_key('shift', False)
-                                set_key('ctrl', False)
-                                set_key('w', False)  
-                                time.sleep(0.02)
-                                set_key('w', True)
-                                is_sprinting = False
-                            else:
-                                set_key('shift', False)
-                                set_key('ctrl', False)
-                                set_key('w', True)
-
-                            if last_action_log != "GEAR_3":
-                                print("   🏃 目标尚远(三档)，解除疾跑，纯按 W 稳步前压...")
-                                last_action_log = "GEAR_3"
-                        elif toilet_ratio < 0.45:
-                            if is_sprinting or not keys_pressed['ctrl']:
-                                set_key('shift', False)
-                                set_key('w', False)  
-                                time.sleep(0.02)
-                                set_key('ctrl', True)
-                                set_key('w', True)
-                                is_sprinting = False
-                            else:
-                                set_key('ctrl', True)
-                                set_key('w', True)
-
-                            if last_action_log != "GEAR_2":
-                                print("   🚶 接近雷区(二档)，切入 Ctrl+W 静步索敌...")
-                                last_action_log = "GEAR_2"
-                        else:
-                            if is_sprinting or not keys_pressed['ctrl']:
-                                set_key('shift', False)
-                                set_key('w', False) 
-                                time.sleep(0.02)
-                                set_key('ctrl', True)
-                                set_key('w', True)
-                                is_sprinting = False
-                            else:
-                                set_key('ctrl', True)
-                                set_key('w', True)
-                            if last_action_log != "GEAR_1":
-                                print("   🛑 贴脸缓冲(一档)！防撞死漏门模式...")
-                                last_action_log = "GEAR_1"
-                        
                         self.rotate_mouse_raw(int(diff_x * 1.0), 0)
                         global_progress_time = time.time()
 
@@ -1354,20 +1306,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if not valid_door_box:
                         time_since_lost = time.time() - global_last_door_time
 
-                        if time_since_lost < 1:
-                            if last_action_log != "BLIND_RUSH":
-                                print("\n⚠️ 贴脸大门视野闪断！保持 Ctrl+W 惯坚盲进！")
-                                last_action_log = "BLIND_RUSH"
-                            set_key('shift', False)
-                            set_key('a', False)
-                            set_key('d', False)
-                            set_key('ctrl', True)
-                            set_key('w', True)
-                            global_progress_time = time.time()
-                        elif time_since_lost < 2.2:
+                        if time_since_lost < 2.2:
                             stop_all()
                             if last_action_log != "WAIT_DOOR":
-                                print(f"   ⏳ 视野闪断超1.5秒，原地等待扫描F...")
+                                print("   🛑 门暂时丢失，立即停步等待识别或 F 提示...")
                                 last_action_log = "WAIT_DOOR"
                         else:
                             stop_all()
@@ -1409,10 +1351,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             set_key('a', False)
                             set_key('d', False)
                             set_key('shift', False)
-                            set_key('ctrl', True)
+                            set_key('ctrl', False)
                             set_key('w', True)
                             if last_action_log != "APPROACH_FAR":
-                                print(f"\n   🚶 大门尚远 (高度:{door_h:.1f} < 200px)，保持 Ctrl+W 直线逼近...")
+                                print(f"\n   🚶 大门尚远 (高度:{door_h:.1f} < 225px)，纯按 W 直线逼近...")
                                 last_action_log = "APPROACH_FAR"
                             # self.rotate_mouse_raw(int(diff_door * 1.5), 0)
                             smooth_glide_mouse(diff_door)
