@@ -379,7 +379,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             return True
 
     def wait_for_jump(self, window_info, theoretical_min_dist):
-        print("🪂 启动实时空降追踪模式 (纯动能追踪版)...")
+        print("🪂 启动实时空降追踪模式 (座位确认登机版)...")
         jump_loop_count = 0
         min_recorded_dist = float('inf')
         base_trigger = theoretical_min_dist + 50.0
@@ -390,9 +390,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_log_print_time = 0
         jump_timeout_start = None
         has_boarded_plane = False
-        last_seen_time = time.time()
+        seat_confirmations = 0
+        plane_confirmations = 0
         last_user_pos = None
-        last_user_pos_time = time.time()
+        last_user_pos_time = None
         fly_past_counter = 0
 
         def execute_safe_jump(current_win_info, j_dist):
@@ -442,93 +443,45 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 pydirectinput.keyUp('m');
                 time.sleep(1.0)
 
-            found_count4, _, _ = self.find_image(game_img, 'count4')
-            if found_count4:
-                jump_timeout_start = None
-                has_boarded_plane = False
-                last_user_pos = None
-                time.sleep(0.5)
-                continue
+                continue  # 等下一张截图确认地图已打开。
+
+            if not has_boarded_plane:
+                found_seats, seat_score = self.find_plane_seats(game_img)
+                seat_confirmations = seat_confirmations + 1 if found_seats else 0
+                if seat_confirmations < 3:
+                    if time.time() - last_log_print_time >= 1:
+                        print(f"   [登机确认] 座位得分:{seat_score:.2f} 连续确认:{seat_confirmations}/3，保持等待")
+                        last_log_print_time = time.time()
+                    time.sleep(0.2)
+                    continue
+                has_boarded_plane = True
+                jump_timeout_start = time.time()
+                print("   [登机确认] 已连续识别飞机座位，等待地图飞机进入画面...")
 
             mx, my = new_window_info['map_offset']
             map_img = game_img[my:my + self.MAP_SIZE, mx:mx + self.MAP_SIZE]
-
-            # ==================================================
-            # 📊 第一步：先把所有嫌疑人的得分都算出来！
-            # ==================================================
-            # 1. 用 user 的照片去匹配
-            user_found_raw, user_pos_raw, user_conf_raw, _ = self.find_user_on_map(map_img)
-            # 2. 用 target 的照片去匹配
-            found_t, conf_t, pos_t = self.find_image(map_img, 'target')
-            # 3. 用飞机的照片去匹配
-            found_feiji, conf_feiji, pos_feiji = self.find_image(map_img, 'feiji')
-
-            # ==================================================
-            # 🖨️ 视觉雷达监控 (每 1 秒强制换行打印一次，绝不被覆盖)
-            # ==================================================
-            curr_sec = int(time.time())
-            last_print_sec = getattr(self, 'last_radar_print_sec', 0)
-
-            if curr_sec > last_print_sec:
-                print(
-                    f"   📊 [视觉雷达] User得分:{user_conf_raw:.2f} | Target得分:{conf_t:.2f} | 飞机得分:{conf_feiji:.2f}")
-                self.last_radar_print_sec = curr_sec
-
-            # ==================================================
-            # 🚀 第三步：极简逻辑判定 (只认高分！)
-            # ==================================================
-            if found_feiji and conf_feiji > 0.50:  # 稍微放宽点飞机的条件，防止蓝海/绿地背景干扰
-                user_found = True
-                user_pos = pos_feiji
-                user_conf = conf_feiji
-            else:
-                user_found = user_found_raw
-                user_pos = user_pos_raw
-                user_conf = user_conf_raw
-
-                # 🛡️ 核心修改：大道至简！把原本 0.48 的门槛直接拔高到 0.65！
-                # 这样即使它把 target 认成了 user (得分大概0.5左右)，也绝对及格不了！
-                if user_found and user_conf < 0.89:
+            user_found, plane_score, user_pos = self.find_flight_plane(map_img)
+            now = time.time()
+            if user_found and last_user_pos is not None:
+                elapsed = now - last_user_pos_time
+                movement = math.hypot(user_pos[0] - last_user_pos[0], user_pos[1] - last_user_pos[1])
+                if movement > max(30.0, elapsed * 80.0):
                     user_found = False
-
-            if user_found:
-                last_seen_time = time.time()
-                if not has_boarded_plane:
-                    if last_user_pos is not None:
-                        move_dist = math.sqrt(
-                            (user_pos[0] - last_user_pos[0]) ** 2 + (user_pos[1] - last_user_pos[1]) ** 2)
-                        time_diff = time.time() - last_user_pos_time
-                        if move_dist > 200.0:
-                            has_boarded_plane = True
-                            jump_timeout_start = time.time()
-                            min_recorded_dist = float('inf')
-                        elif time_diff > 1.5:
-                            speed = move_dist / time_diff
-                            if speed > 15.0:
-                                has_boarded_plane = True
-                                jump_timeout_start = time.time()
-                                min_recorded_dist = float('inf')
-                            else:
-                                last_user_pos = user_pos
-                                last_user_pos_time = time.time()
-                    else:
-                        last_user_pos = user_pos
-                        last_user_pos_time = time.time()
-                else:
-                    if last_user_pos is not None:
-                        move_dist = math.sqrt(
-                            (user_pos[0] - last_user_pos[0]) ** 2 + (user_pos[1] - last_user_pos[1]) ** 2)
-                        time_diff = time.time() - last_user_pos_time
-                        if time_diff < 1.0 and move_dist > 80.0: user_found = False
-                    if user_found:
-                        last_user_pos = user_pos
-                        last_user_pos_time = time.time()
-
-            if has_boarded_plane and jump_timeout_start:
-                time_since_last_seen = time.time() - last_seen_time
-                total_flight_time = time.time() - jump_timeout_start
-                if time_since_last_seen > 5.0 or total_flight_time > 90.0:
-                    return execute_safe_jump(new_window_info, 150.0)
+            if not user_found:
+                plane_confirmations = 0
+                fly_past_counter = 0
+                # 未曾追踪到飞机或暂时丢失，都不能依据黄色区域/丢失超时强跳。
+                last_user_pos = None
+                if now - last_log_print_time >= 1:
+                    print(f"   [地图飞机] 得分:{plane_score:.2f}，等待可信飞机位置，不触发跳伞")
+                    last_log_print_time = now
+                time.sleep(0.1)
+                continue
+            last_user_pos, last_user_pos_time = user_pos, now
+            plane_confirmations += 1
+            if plane_confirmations < 2:
+                time.sleep(0.1)
+                continue
 
             target_x, target_y = None, None
             if self.best_jump_point_coords:
@@ -551,7 +504,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             f"   ✈️ 航班监控 -> 当前距标点: {dist:.1f}px | 跳伞红线: {real_time_trigger:.1f}px | 已飞: {flight_time:.1f}秒",
                             end='\r')
                 if dist <= real_time_trigger+20:
-                    if has_boarded_plane:
+                    if has_boarded_plane and time.time() - jump_timeout_start > 5.0:
                         flight_time = time.time() - jump_timeout_start
                         print("\n" + "=" * 50)
                         print("🚨 [跳伞引擎] 触发跳舱指令！")
@@ -564,10 +517,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if time.time() - jump_timeout_start > 5.0:
                             return execute_safe_jump(new_window_info, dist)
 
-                if has_boarded_plane and dist > min_recorded_dist + 50 and min_recorded_dist != float('inf'):
+                if has_boarded_plane and time.time() - jump_timeout_start > 5.0 and dist > min_recorded_dist + 50 and min_recorded_dist != float('inf'):
                     fly_past_counter += 1
                     if fly_past_counter >= 3:
                         if min_recorded_dist <= 150.0:
+                            print("   [实际跳舱] 已飞过最近点，按 F 跳舱")
                             return execute_safe_jump(new_window_info, min_recorded_dist)
                         else:
                             pydirectinput.press('m');

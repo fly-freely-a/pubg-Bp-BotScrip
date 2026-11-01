@@ -246,6 +246,41 @@ class VisionMixin:
         except Exception:
             return False, 0.0, None
 
+    def find_plane_seats(self, screen):
+        if not hasattr(self, 'plane_seats_template'):
+            self.plane_seats_template = self._load_img('plane_seats.png')
+        template = self.plane_seats_template
+        if screen is None or template is None:
+            return False, 0.0
+        # 固定左下角区域，避开会变化的乘客人数文字。
+        roi = screen[780:990, 30:190]
+        result = cv2.matchTemplate(roi, template, cv2.TM_CCOEFF_NORMED)
+        score = float(cv2.minMaxLoc(result)[1])
+        return score >= 0.85, score
+
+    def find_flight_plane(self, map_img):
+        if not hasattr(self, 'flight_plane_templates'):
+            template = self._load_img('map_plane.png')
+            self.flight_plane_templates = []
+            if template is not None:
+                h, w = template.shape[:2]
+                # 航线方向不同，地图飞机图标也会旋转。
+                for angle in range(0, 360, 15):
+                    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)
+                    side = int(math.ceil(math.hypot(w, h)))
+                    matrix[0, 2] += (side - w) / 2
+                    matrix[1, 2] += (side - h) / 2
+                    rotated = cv2.warpAffine(template, matrix, (side, side))
+                    self.flight_plane_templates.append(rotated)
+        best_score, best_pos = 0.0, None
+        for template in self.flight_plane_templates:
+            result = cv2.matchTemplate(map_img, template, cv2.TM_CCOEFF_NORMED)
+            _, score, _, pos = cv2.minMaxLoc(result)
+            if score > best_score:
+                h, w = template.shape[:2]
+                best_score, best_pos = float(score), (pos[0] + w / 2, pos[1] + h / 2)
+        return best_score >= 0.70, best_score, best_pos
+
     def find_user_on_map(self, map_img):
         if map_img is None: return False, None, 0.0, None
 
