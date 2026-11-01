@@ -932,33 +932,25 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # 全局智能 F 交互拦截器
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
-                    ignore_f = False
-                    # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
-                    # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
-                    if bot_state == 'APPROACH_DOOR':
-                        reason = ('未加载F模板' if f_tmpl is None else
-                                  '对齐条件拦截' if ignore_f else
-                                  'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
-                        if time.time() - last_door_diagnostic >= 2.0:
-                            print(f"\n🔎 [开门诊断] F得分:{current_f_score:.4f} 阈值:>0.72 "
-                                  f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
-                            last_door_diagnostic = time.time()
-                        # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
-                        # if frame_captured_at - last_door_snapshot >= 0.25:
-                        #     metadata = dict(state=bot_state, f_score=float(current_f_score),
-                        #                     f_threshold=0.72, template_loaded=f_tmpl is not None,
-                        #                     has_aligned_door=bool(has_aligned_door),
-                        #                     ignore_f=bool(ignore_f), reason=reason,
-                        #                     marker_distance=dist, captured_at=frame_captured_at)
-                        #     if door_recorder.submit(game_img, metadata):
-                        #         last_door_snapshot = frame_captured_at
-                    if current_f_score > 0.72 and not ignore_f:
-                        print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 立即停步并交互！")
+                    door_prompt_score = 0.0
+                    for tmpl in open_door_templates:
+                        res_d = cv2.matchTemplate(game_img, tmpl, cv2.TM_CCOEFF_NORMED)
+                        door_prompt_score = max(door_prompt_score, cv2.minMaxLoc(res_d)[1])
+                    found_door_prompt = door_prompt_score > 0.7
+                    # 门提示优先，未对齐时禁止落入普通物资交互分支。
+                    door_ready = (found_door_prompt and bot_state == "APPROACH_DOOR"
+                                  and has_aligned_door)
+                    item_ready = not found_door_prompt and current_f_score > 0.72
+                    if bot_state == "APPROACH_DOOR" and time.time() - last_door_diagnostic >= 2.0:
+                        print(f"\n🔎 [开门诊断] 推门得分:{door_prompt_score:.4f} 阈值:>0.70 "
+                              f"门已对齐:{has_aligned_door} 允许开门:{door_ready}")
+                        last_door_diagnostic = time.time()
+                    if door_ready or item_ready:
                         stop_all()
+                        interaction_is_door = door_ready
                         bot_state = "VERIFY_DOOR"
-                        verify_count = 1
                         global_progress_time = time.time()
-                        # 直接用当前帧核验并按 F，不等待下一帧，避免错过路边物资。
+                        # 当前帧直接交互，开门不依赖 F 图标得分。
                 # ==========================================
                 # YOLO 视觉逻辑
                 # ==========================================
@@ -1510,41 +1502,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             smooth_glide_mouse(diff_door)
                 elif bot_state == "VERIFY_DOOR":
                     global_progress_time = time.time()
-                    c_img = game_img
-                    found_f = False
-                    found_door = False
-                    score_f = 0.0
-                    if f_tmpl is not None:
-                        res_f = cv2.matchTemplate(c_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
-                        score_f = cv2.minMaxLoc(res_f)[1]
-                        if score_f > 0.72: found_f = True
-                    for tmpl in open_door_templates:
-                        res_d = cv2.matchTemplate(c_img, tmpl, cv2.TM_CCOEFF_NORMED)
-                        if cv2.minMaxLoc(res_d)[1] > 0.7:
-                            found_door = True
-                            break
-                    if found_f:
-                        if verify_count >= 1:
-                            if found_door:
-                                print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
-                                win32api.keybd_event(0x46, 0, 0, 0)
-                                time.sleep(0.05)
-                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
-                                time.sleep(0.4)
-                                bot_state = "ITEM_PICKUP"
-                            else:
-                                print(f"   📦 核验为【物资】！(F:{score_f:.2f}, 无门) 直接按 F 拾取！")
-                                win32api.keybd_event(0x46, 0, 0, 0)
-                                time.sleep(0.05)
-                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
-                                time.sleep(0.2)  
-                                bot_state = "COMPASS_RUSH"
+                    if interaction_is_door:
+                        print(f"   🎯 匹配【推门】且门已对齐！(推门:{door_prompt_score:.2f}) 按 F 开门，准备突入！")
                     else:
-                        print(f"   ⚠️ F 提示闪断或误报 (F置信度:{score_f:.2f})，退回罗盘奔袭...")
-                        pydirectinput.press('s')
-                        pydirectinput.press('s')
-                        stop_all()
-                        bot_state = "COMPASS_RUSH"
+                        print(f"   📦 普通 F 提示！(F:{current_f_score:.2f}) 按 F 拾取，不执行进屋！")
+                    win32api.keybd_event(0x46, 0, 0, 0)
+                    time.sleep(0.05)
+                    win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
+                    time.sleep(0.4 if interaction_is_door else 0.2)
+                    bot_state = "ITEM_PICKUP" if interaction_is_door else "COMPASS_RUSH"
 
                 elif bot_state == "ITEM_PICKUP":
                     global_progress_time = time.time()
