@@ -4,13 +4,13 @@ import unittest
 
 
 class DoorInteractionRulesTests(unittest.TestCase):
-    def decide(self, door_score, f_score, aligned, state='APPROACH_DOOR', close_score=0.0):
+    def decide(self, door_score, f_score, aligned, state='APPROACH_DOOR'):
         tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
-        names = {'found_close_prompt', 'found_door_prompt', 'door_ready', 'item_ready'}
+        names = {'found_door_prompt', 'door_ready', 'item_ready'}
         assignments = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
                        and any(isinstance(t, ast.Name) and t.id in names for t in n.targets)]
         assignments.sort(key=lambda n: n.lineno)
-        namespace = dict(door_prompt_score=door_score, close_prompt_score=close_score, current_f_score=f_score,
+        namespace = dict(door_prompt_score=door_score, current_f_score=f_score,
                          has_aligned_door=aligned, bot_state=state)
         exec(compile(ast.Module(body=assignments, type_ignores=[]), '<rules>', 'exec'), namespace)
         return namespace['door_ready'], namespace['item_ready']
@@ -30,13 +30,11 @@ class DoorInteractionRulesTests(unittest.TestCase):
     def test_stale_alignment_outside_door_approach_cannot_open(self):
         self.assertEqual(self.decide(.89, .99, True, 'COMPASS_RUSH'), (False, False))
 
-    def test_close_prompt_interacts_without_triggering_entry(self):
-        self.assertEqual(self.decide(.54, .1, False, close_score=.95), (False, True))
-
-    def test_close_prompt_overrides_open_prompt_even_when_aligned(self):
-        self.assertEqual(self.decide(.89, .99, True, close_score=.95), (False, True))
+    def test_non_push_f_prompt_interacts_without_entry(self):
+        self.assertEqual(self.decide(.54, .99, False), (False, True))
 
     def test_only_full_push_prompt_template_is_loaded(self):
         source = (Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text()
         self.assertNotIn('door3.png', source)
+        self.assertNotIn('door2.png', source)
         self.assertIn('open_door_templates = [door_tmpl]', source)

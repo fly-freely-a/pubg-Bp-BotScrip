@@ -757,9 +757,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # print(f"📷 [开门诊断] 接近门时最多每0.25秒采样一次，按时间戳保存至 {diagnostic_dir}")
 
         door_path = os.path.join(self.image_dir, 'door.png')
-        door2_path = os.path.join(self.image_dir, 'door2.png')
         door_tmpl = cv2.imread(door_path) if os.path.exists(door_path) else None
-        door2_tmpl = cv2.imread(door2_path) if os.path.exists(door2_path) else None
         open_door_templates = [door_tmpl] if door_tmpl is not None else []
 
         print("🔍 确认小地图状态...")
@@ -895,7 +893,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 radar_started_at = time.perf_counter()
                 dist = self.get_radar_distance(game_img)
                 radar_ms = (time.perf_counter() - radar_started_at) * 1000
-                push_ms = close_ms = 0.0
+                push_ms = 0.0
 
                 # ==========================================
                 # 🌟 电子围栏与动态偏航纠正 
@@ -947,23 +945,16 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         res_d = cv2.matchTemplate(game_img, tmpl, cv2.TM_CCOEFF_NORMED)
                         door_prompt_score = max(door_prompt_score, cv2.minMaxLoc(res_d)[1])
                     push_ms = (time.perf_counter() - push_started_at) * 1000
-                    close_started_at = time.perf_counter()
-                    close_prompt_score = 0.0
-                    if door2_tmpl is not None:
-                        res_close = cv2.matchTemplate(game_img, door2_tmpl, cv2.TM_CCOEFF_NORMED)
-                        close_prompt_score = cv2.minMaxLoc(res_close)[1]
-                    close_ms = (time.perf_counter() - close_started_at) * 1000
-                    found_close_prompt = close_prompt_score > 0.7
-                    found_door_prompt = door_prompt_score > 0.7 and not found_close_prompt
+                    found_door_prompt = door_prompt_score > 0.7
                     # 门提示优先，未对齐时禁止落入普通物资交互分支。
                     door_ready = (found_door_prompt and bot_state == "APPROACH_DOOR"
                                   and has_aligned_door)
-                    item_ready = found_close_prompt or (not found_door_prompt and current_f_score > 0.72)
+                    item_ready = not found_door_prompt and current_f_score > 0.72
                     if bot_state == "APPROACH_DOOR" and time.time() - last_door_diagnostic >= 2.0:
                         print(f"\n🔎 [开门诊断] 推门得分:{door_prompt_score:.4f} 阈值:>0.70 "
-                              f"关闭门得分:{close_prompt_score:.4f} F得分:{current_f_score:.4f} "
+                              f"F得分:{current_f_score:.4f} "
                               f"门已对齐:{has_aligned_door} 允许开门:{door_ready} "
-                              f"原因:{'允许开门' if door_ready else '匹配关闭门' if found_close_prompt else '无推门提示' if not found_door_prompt else '门尚未对齐或不在接近门状态'}")
+                              f"原因:{'允许开门' if door_ready else '无推门提示' if not found_door_prompt else '门尚未对齐或不在接近门状态'}")
                         last_door_diagnostic = time.time()
                     if door_ready or item_ready:
                         stop_all()
@@ -1026,8 +1017,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                           f"模板及导航:{template_ms:.1f}ms YOLO:{yolo_ms:.1f}ms "
                           f"本轮至决策:{(diagnostic_now - loop_started_at) * 1000:.1f}ms")
                     print(f"[检测分项] F匹配:{f_ms:.1f}ms 结束界面:{endgame_ms:.1f}ms "
-                          f"小地图测距:{radar_ms:.1f}ms 推门匹配:{push_ms:.1f}ms "
-                          f"关闭门匹配:{close_ms:.1f}ms")
+                          f"小地图测距:{radar_ms:.1f}ms 推门匹配:{push_ms:.1f}ms")
                     if valid_door_box:
                         print(f"[门框诊断] 中心:({valid_door_box['x']:.1f},{valid_door_box['y']:.1f}) "
                               f"宽高:({valid_door_box['w']:.1f},{valid_door_box['h']:.1f}) "
@@ -1552,19 +1542,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     global_progress_time = time.time()
                     if interaction_is_door:
                         print(f"   🎯 匹配【推门】且门已对齐！(推门:{door_prompt_score:.2f}) 按 F 开门，准备突入！")
-                    elif found_close_prompt:
-                        print(f"   🚪 匹配【关闭门】！(关闭门:{close_prompt_score:.2f}) 按 F 关门，重新识别对齐，不执行进屋！")
                     else:
-                        print(f"   📦 普通 F 提示！(F:{current_f_score:.2f}) 按 F 拾取，不执行进屋！")
-                    print(f"[交互时序] 发送F 类型:{'开门' if interaction_is_door else '关门' if found_close_prompt else '物品'} "
+                        print(f"   📦 普通 F 提示！(F:{current_f_score:.2f}) 按 F 交互，不执行进屋！")
+                    print(f"[交互时序] 发送F 类型:{'开门' if interaction_is_door else '普通交互'} "
                           f"地面启动后:{time.perf_counter() - ground_started_at:.3f}s "
                           f"本轮截图开始至按键:{time.perf_counter() - loop_started_at:.3f}s")
                     win32api.keybd_event(0x46, 0, 0, 0)
                     time.sleep(0.05)
                     win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
-                    time.sleep(0.4 if interaction_is_door or found_close_prompt else 0.2)
-                    if found_close_prompt:
-                        has_aligned_door = False
+                    time.sleep(0.4 if interaction_is_door else 0.2)
                     bot_state = "ITEM_PICKUP" if interaction_is_door else "COMPASS_RUSH"
 
                 elif bot_state == "ITEM_PICKUP":
