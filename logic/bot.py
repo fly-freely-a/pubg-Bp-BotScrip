@@ -788,6 +788,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         first_yolo_finished = False
         first_door_seen = False
         last_ground_diagnostic = 0.0
+        last_ground_endgame_check = float('-inf')
         last_turn_diagnostic = 0.0
         last_diagnostic_state = None
         last_door_diagnostic = 0.0
@@ -929,9 +930,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     current_f_score = cv2.minMaxLoc(res_f)[1]
 
                 f_ms = (time.perf_counter() - f_started_at) * 1000
-                endgame_started_at = time.perf_counter()
-                endgame_found = self.handle_endgame(game_img, current_window_info)
-                endgame_ms = (time.perf_counter() - endgame_started_at) * 1000
+                endgame_ms = 0.0
+                endgame_found = False
+                endgame_checked = False
+                if time.perf_counter() - last_ground_endgame_check >= 2.0:
+                    endgame_started_at = time.perf_counter()
+                    last_ground_endgame_check = endgame_started_at
+                    endgame_checked = True
+                    endgame_found = self.handle_endgame(game_img, current_window_info)
+                    endgame_ms = (time.perf_counter() - endgame_started_at) * 1000
                 if endgame_found:
                     self.has_marked_this_match = False
                     stop_all()
@@ -1068,7 +1075,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                           f"距标点:{dist} 截图:{capture_ms:.1f}ms "
                           f"模板及导航:{template_ms:.1f}ms YOLO:{yolo_ms:.1f}ms "
                           f"本轮至决策:{(diagnostic_now - loop_started_at) * 1000:.1f}ms")
-                    print(f"[检测分项] F匹配:{f_ms:.1f}ms 结束界面:{endgame_ms:.1f}ms "
+                    print(f"[检测分项] F匹配:{f_ms:.1f}ms 结束界面:{endgame_ms:.1f}ms(本轮执行:{endgame_checked}) "
                           f"小地图测距:{radar_ms:.1f}ms 推门匹配:{push_ms:.1f}ms")
                     if valid_door_box:
                         print(f"[门框诊断] 中心:({valid_door_box['x']:.1f},{valid_door_box['y']:.1f}) "
