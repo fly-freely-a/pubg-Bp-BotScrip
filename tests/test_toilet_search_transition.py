@@ -41,3 +41,19 @@ class ToiletSearchTransitionTests(unittest.TestCase):
 
     def test_visible_door_does_not_start_building_search(self):
         self.assertEqual(self.replay(500, door={'h': 200})['bot_state'], 'RUNNING')
+
+    def test_building_approach_releases_ctrl_but_door_approach_keeps_it(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
+        branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                      and ast.unparse(n.test) == 'valid_door_box'
+                      and 'FORCE_BRAKE' in ast.unparse(n))
+        for visible_door in (False, True):
+            keys = dict(w=False, ctrl=True, shift=False)
+            namespace = dict(valid_door_box={'h': 200} if visible_door else None,
+                             keys_pressed=keys, is_sprinting=False, last_action_log='',
+                             set_key=lambda key, state: keys.update({key: state}),
+                             time=SimpleNamespace(sleep=Mock()), print=Mock())
+            exec(compile(ast.Module(body=[branch], type_ignores=[]), '<approach_speed>', 'exec'), namespace)
+            self.assertTrue(keys['w'])
+            self.assertEqual(keys['ctrl'], visible_door)
+            self.assertFalse(keys['shift'])

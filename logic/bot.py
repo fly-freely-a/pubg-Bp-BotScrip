@@ -1291,8 +1291,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             last_action_log = "VISUAL_ADJUST"
                         self.rotate_mouse_raw(int(diff_x * 0.6), 0)
                     else:
-                        toilet_ratio = toilet_box['h'] / h
-
                         if valid_door_box:
                             set_key('shift', False)
                             set_key('ctrl', True)
@@ -1300,12 +1298,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             if last_action_log != "FORCE_BRAKE":
                                 print("   🚨 发现门框反光！紧急降速至静步...")
                                 last_action_log = "FORCE_BRAKE"
-
-                        elif toilet_ratio < 0.25:
+                        else:
                             if is_sprinting or keys_pressed['ctrl']:
                                 set_key('shift', False)
                                 set_key('ctrl', False)
-                                set_key('w', False)  
+                                set_key('w', False)
                                 time.sleep(0.02)
                                 set_key('w', True)
                                 is_sprinting = False
@@ -1313,40 +1310,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 set_key('shift', False)
                                 set_key('ctrl', False)
                                 set_key('w', True)
+                            if last_action_log != "TOILET_WALK":
+                                print("   🚶 未发现门，纯按 W 接近厕所，到观察距离后绕行...")
+                                last_action_log = "TOILET_WALK"
 
-                            if last_action_log != "GEAR_3":
-                                print("   🏃 目标尚远(三档)，解除疾跑，纯按 W 稳步前压...")
-                                last_action_log = "GEAR_3"
-                        elif toilet_ratio < 0.45:
-                            if is_sprinting or not keys_pressed['ctrl']:
-                                set_key('shift', False)
-                                set_key('w', False)  
-                                time.sleep(0.02)
-                                set_key('ctrl', True)
-                                set_key('w', True)
-                                is_sprinting = False
-                            else:
-                                set_key('ctrl', True)
-                                set_key('w', True)
-
-                            if last_action_log != "GEAR_2":
-                                print("   🚶 接近雷区(二档)，切入 Ctrl+W 静步索敌...")
-                                last_action_log = "GEAR_2"
-                        else:
-                            if is_sprinting or not keys_pressed['ctrl']:
-                                set_key('shift', False)
-                                set_key('w', False) 
-                                time.sleep(0.02)
-                                set_key('ctrl', True)
-                                set_key('w', True)
-                                is_sprinting = False
-                            else:
-                                set_key('ctrl', True)
-                                set_key('w', True)
-                            if last_action_log != "GEAR_1":
-                                print("   🛑 贴脸缓冲(一档)！防撞死漏门模式...")
-                                last_action_log = "GEAR_1"
-                        
                         self.rotate_mouse_raw(int(diff_x * 1.0), 0)
                         global_progress_time = time.time()
 
