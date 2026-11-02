@@ -742,6 +742,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             f_tmpl = cv2.resize(f_tmpl, None, fx=0.35, fy=0.35)
         print(f"🔎 [开门诊断] F模板已加载:{f_tmpl is not None} 路径:{f_path} "
               f"尺寸:{f_tmpl.shape[:2] if f_tmpl is not None else None}")
+        ground_started_at = time.perf_counter()
+        first_ground_frame = True
+        first_yolo_finished = False
+        first_door_seen = False
+        last_ground_diagnostic = 0.0
+        last_turn_diagnostic = 0.0
+        last_diagnostic_state = None
         last_door_diagnostic = 0.0
         # last_door_snapshot = 0.0
         # diagnostic_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
@@ -782,6 +789,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
             # 👇 从这里开始复制：【高频 1 像素平滑拖拽 + 死区锁死引擎】
         def smooth_glide_mouse(diff_x):
+            nonlocal last_turn_diagnostic
                 # 1. 【死区锁死】如果门框中心距离屏幕中心小于 20 像素，视为“已完美对准”！
                 # 此时直接 return，切断一切鼠标输入，彻底解决对准后还左右发抖的问题。
             if abs(diff_x) < 20:
@@ -798,6 +806,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # 把算出来的位移，切碎成每次只移动 3 像素，利用 for 循环瞬间执行完
                 # 游戏底层会把它识别成一次“极度平滑的鼠标拖拽”！
             step = 3 if move_dist > 0 else -3
+            if time.perf_counter() - last_turn_diagnostic >= 1.0:
+                print(f"[门口转向] 偏差:{diff_x:.1f}px 计算修正:{move_dist} "
+                      f"实际发送总量:{abs(move_dist) * step} 次数:{abs(move_dist)}")
+                last_turn_diagnostic = time.perf_counter()
             for _ in range(abs(move_dist)):
                 win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, step, 0, 0, 0)
         # 👆 复制到这里结束
@@ -849,9 +861,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     print("\n\n🛑 接收到强行中断指令！切断引擎！")
                     break
 
+                loop_started_at = time.perf_counter()
+                capture_started_at = time.perf_counter()
                 game_img, current_window_info = self.capture_game_screen()
+                capture_ms = (time.perf_counter() - capture_started_at) * 1000
+                template_started_at = time.perf_counter()
+                yolo_ms = 0.0
                 # frame_captured_at = time.time()  # 截图诊断暂时停用
                 if game_img is None: time.sleep(0.05); continue
+                if first_ground_frame:
+                    print(f"[地面启动] 首张有效截图:{capture_ms:.1f}ms "
+                          f"距启动:{time.perf_counter() - ground_started_at:.3f}s")
+                    first_ground_frame = False
 
                 current_f_score = 0.0
                 if f_tmpl is not None:
@@ -928,7 +949,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     item_ready = found_close_prompt or (not found_door_prompt and current_f_score > 0.72)
                     if bot_state == "APPROACH_DOOR" and time.time() - last_door_diagnostic >= 2.0:
                         print(f"\n🔎 [开门诊断] 推门得分:{door_prompt_score:.4f} 阈值:>0.70 "
-                              f"门已对齐:{has_aligned_door} 允许开门:{door_ready}")
+                              f"关闭门得分:{close_prompt_score:.4f} F得分:{current_f_score:.4f} "
+                              f"门已对齐:{has_aligned_door} 允许开门:{door_ready} "
+                              f"原因:{'允许开门' if door_ready else '匹配关闭门' if found_close_prompt else '无推门提示' if not found_door_prompt else '门尚未对齐或不在接近门状态'}")
                         last_door_diagnostic = time.time()
                     if door_ready or item_ready:
                         stop_all()
@@ -939,10 +962,17 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
                 # YOLO 视觉逻辑
                 # ==========================================
+                template_ms = (time.perf_counter() - template_started_at) * 1000
                 toilet_box, valid_door_box = None, None
 
                 if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
+                    yolo_started_at = time.perf_counter()
                     results = self.yolo_model.predict(source=game_img, conf=0.5, classes=[0, 1], verbose=False,half=True, imgsz=640,)
+                    yolo_ms = (time.perf_counter() - yolo_started_at) * 1000
+                    if not first_yolo_finished:
+                        print(f"[地面启动] 首次YOLO耗时:{yolo_ms:.1f}ms "
+                              f"地面启动至此:{time.perf_counter() - ground_started_at:.3f}s")
+                        first_yolo_finished = True
                     toilet_boxes, door_boxes = [], []
 
                     for r in results:
@@ -973,6 +1003,24 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
+                diagnostic_now = time.perf_counter()
+                if valid_door_box and not first_door_seen:
+                    print(f"[地面启动] 首次有效门框 距启动:{diagnostic_now - ground_started_at:.3f}s")
+                    first_door_seen = True
+                if diagnostic_now - last_ground_diagnostic >= 1.0 or bot_state != last_diagnostic_state:
+                    active_keys = '+'.join(k for k, pressed in keys_pressed.items() if pressed) or '无'
+                    print(f"[地面耗时] 状态:{bot_state} 动作:{last_action_log} 按键:{active_keys} "
+                          f"距标点:{dist} 截图:{capture_ms:.1f}ms "
+                          f"模板及导航:{template_ms:.1f}ms YOLO:{yolo_ms:.1f}ms "
+                          f"本轮至决策:{(diagnostic_now - loop_started_at) * 1000:.1f}ms")
+                    if valid_door_box:
+                        print(f"[门框诊断] 中心:({valid_door_box['x']:.1f},{valid_door_box['y']:.1f}) "
+                              f"宽高:({valid_door_box['w']:.1f},{valid_door_box['h']:.1f}) "
+                              f"偏差:{valid_door_box['x'] - center_x:.1f}px "
+                              f"宽高比:{valid_door_box['w'] / valid_door_box['h']:.3f} "
+                              f"已对齐:{has_aligned_door}")
+                    last_ground_diagnostic = diagnostic_now
+                    last_diagnostic_state = bot_state
                 if valid_door_box: global_last_door_time = time.time()
 
                 if target_focus:
@@ -1493,6 +1541,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         print(f"   🚪 匹配【关闭门】！(关闭门:{close_prompt_score:.2f}) 按 F 关门，重新识别对齐，不执行进屋！")
                     else:
                         print(f"   📦 普通 F 提示！(F:{current_f_score:.2f}) 按 F 拾取，不执行进屋！")
+                    print(f"[交互时序] 发送F 类型:{'开门' if interaction_is_door else '关门' if found_close_prompt else '物品'} "
+                          f"地面启动后:{time.perf_counter() - ground_started_at:.3f}s "
+                          f"本轮截图开始至按键:{time.perf_counter() - loop_started_at:.3f}s")
                     win32api.keybd_event(0x46, 0, 0, 0)
                     time.sleep(0.05)
                     win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
