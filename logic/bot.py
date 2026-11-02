@@ -872,6 +872,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_aspect_ratio = 0.0
         ratio_check_time = time.time()
         has_aligned_door = False
+        centered_door_count = 0
+        near_door_memory = False
 
         last_space_time = 0.0
         verify_count = 0
@@ -1071,6 +1073,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     last_ground_diagnostic = diagnostic_now
                     last_diagnostic_state = bot_state
                 if valid_door_box: global_last_door_time = time.time()
+                if bot_state != "APPROACH_DOOR":
+                    centered_door_count = 0
+                    near_door_memory = False
+                elif valid_door_box:
+                    if abs(valid_door_box['x'] - center_x) <= 80 and valid_door_box['h'] >= h * 0.20:
+                        centered_door_count += 1
+                    else:
+                        centered_door_count = 0
+                    near_door_memory = centered_door_count >= 3
 
                 if target_focus:
                     global_last_seen_time = time.time()
@@ -1437,7 +1448,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if not valid_door_box:
                         time_since_lost = time.time() - global_last_door_time
 
-                        if time_since_lost < 1:
+                        if near_door_memory and time_since_lost < 2.0:
+                            set_key('shift', False)
+                            set_key('a', False)
+                            set_key('d', False)
+                            set_key('ctrl', True)
+                            set_key('w', True)
+                            is_sprinting = False
+                            global_progress_time = time.time()
+                            if last_action_log != "MEMORY_APPROACH":
+                                print("[近门记忆] 连续3次近门居中，短暂丢失后 Ctrl+W 慢进，最多2秒，等待F提示")
+                                last_action_log = "MEMORY_APPROACH"
+                        elif time_since_lost < 1:
                             if last_action_log != "BLIND_RUSH":
                                 print("\n⚠️ 贴脸大门视野闪断！保持 Ctrl+W 惯坚盲进！")
                                 last_action_log = "BLIND_RUSH"
