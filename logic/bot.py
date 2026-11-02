@@ -395,8 +395,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_user_pos = None
         last_user_pos_time = None
         fly_past_counter = 0
+        last_tracking_log = 0.0
+        frame_started_at = None
 
         def execute_safe_jump(current_win_info, j_dist):
+            decision_at = time.time()
+            print(f"\n[跳伞诊断] 决策时刻:{decision_at:.3f} 来源:{position_source} "
+                  f"位置:{user_pos} 标点:{self.best_jump_point_coords} "
+                  f"本次距离参数:{j_dist:.1f}px 最近距离:{min_recorded_dist:.1f}px "
+                  f"飞过计数:{fly_past_counter} 截图至决策:{decision_at - frame_started_at:.3f}s")
             cw, ch = current_win_info['game_size']
             cx = current_win_info['screen_pos'][0] + current_win_info['border'][0] + int(cw / 2)
             cy = current_win_info['screen_pos'][1] + current_win_info['border'][1] + int(ch / 2)
@@ -407,10 +414,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             time.sleep(0.3)
 
+            print(f"[跳伞诊断] 发送关闭地图 M 时刻:{time.time():.3f}")
             pydirectinput.keyDown('m');
             time.sleep(0.25);
             pydirectinput.keyUp('m');
             time.sleep(0.5)
+            print(f"[跳伞诊断] 发送跳舱 F 时刻:{time.time():.3f} 决策至按键:{time.time() - decision_at:.3f}s")
             pydirectinput.keyDown('f');
             time.sleep(0.2);
             pydirectinput.keyUp('f');
@@ -427,6 +436,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         while self.running and jump_loop_count < 600:
             if self.is_paused: time.sleep(1); continue
             jump_loop_count += 1
+            frame_started_at = time.time()
             game_img, new_window_info = self.capture_game_screen()
             if game_img is None: time.sleep(0.2); continue
 
@@ -462,6 +472,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             map_img = game_img[my:my + self.MAP_SIZE, mx:mx + self.MAP_SIZE]
             # 恢复原来的 User 模板/黄色圆圈定位，但只在座位图确认登机后使用。
             user_found, user_pos, plane_score, position_source = self.find_user_on_map(map_img)
+            rejection_reason = ('未找到位置' if not user_found else
+                                '得分不足0.89' if plane_score < 0.89 else '通过')
             user_found = user_found and plane_score >= 0.89
             now = time.time()
             if user_found and last_user_pos is not None:
@@ -469,6 +481,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 movement = math.hypot(user_pos[0] - last_user_pos[0], user_pos[1] - last_user_pos[1])
                 if movement > max(30.0, elapsed * 80.0):
                     user_found = False
+                    rejection_reason = (f'位置跳变:{movement:.1f}px>'
+                                        f'{max(30.0, elapsed * 80.0):.1f}px 间隔:{elapsed:.3f}s')
+            if now - last_tracking_log >= 0.5:
+                diagnostic_distance = (math.hypot(user_pos[0] - self.best_jump_point_coords[0],
+                                                  user_pos[1] - self.best_jump_point_coords[1])
+                                       if user_pos is not None and self.best_jump_point_coords else None)
+                print(f"\n[追踪诊断] 时刻:{now:.3f} 已登机:{now - jump_timeout_start:.2f}s "
+                      f"来源:{position_source} 得分:{plane_score:.3f} 位置:{user_pos} "
+                      f"标点:{self.best_jump_point_coords} 距离:{diagnostic_distance} "
+                      f"判定:{rejection_reason} 连续有效:{plane_confirmations + 1 if user_found else 0} "
+                      f"截图处理:{now - frame_started_at:.3f}s")
+                last_tracking_log = now
             if not user_found:
                 plane_confirmations = 0
                 fly_past_counter = 0
@@ -499,12 +523,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 elif dist < min_recorded_dist:
                     min_recorded_dist = dist
 
-                if has_boarded_plane:
-                    flight_time = time.time() - jump_timeout_start
-                    if int(time.time() * 10) % 10 == 0:
-                        print(
-                            f"   ✈️ 航班监控 -> 当前距标点: {dist:.1f}px | 跳伞红线: {real_time_trigger:.1f}px | 已飞: {flight_time:.1f}秒",
-                            end='\r')
+                if now - last_log_print_time >= 0.5:
+                    print(f"[距离诊断] 实时:{dist:.1f}px 最近:{min_recorded_dist:.1f}px "
+                          f"阈值:{real_time_trigger + 20:.1f}px "
+                          f"5秒保护剩余:{max(0.0, 5.0 - (now - jump_timeout_start)):.2f}s "
+                          f"飞过计数:{fly_past_counter}")
+                    last_log_print_time = now
                 if dist <= real_time_trigger+20:
                     if has_boarded_plane and time.time() - jump_timeout_start > 5.0:
                         flight_time = time.time() - jump_timeout_start
