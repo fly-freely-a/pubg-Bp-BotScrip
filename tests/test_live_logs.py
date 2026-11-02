@@ -3,11 +3,13 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import shutil
+import subprocess
 import unittest
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from core.live_logs import LiveLogs, LogBuffer, Tee
+from core.live_logs import PAGE, LiveLogs, LogBuffer, Tee
 
 
 class LiveLogTests(unittest.TestCase):
@@ -66,3 +68,36 @@ class LiveLogTests(unittest.TestCase):
             self.assertIs(sys.stdout, stdout)
             self.assertIs(sys.stderr, stderr)
             self.assertIn('测试输出', service.path.read_text())
+
+    def test_javascript_newlines_are_escaped(self):
+        script = PAGE.split('<script>', 1)[1].split('</script>', 1)[0]
+        self.assertIn("lines.join('\\n')", script)
+        self.assertNotIn("lines.join('\n')", script)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is used only for browser script syntax validation')
+    def test_browser_script_parses(self):
+        script = PAGE.split('<script>', 1)[1].split('</script>', 1)[0]
+        result = subprocess.run(['node', '--check'], input=script, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is used only for browser polling validation')
+    def test_browser_poll_updates_connection_and_log_text(self):
+        script = PAGE.split('<script>', 1)[1].split('</script>', 1)[0]
+        setup = '''
+const elements = {};
+global.document = {getElementById: id => elements[id] ||= {textContent: ''}};
+global.window = {scrollTo: () => {}, document: {}};
+document.body = {scrollHeight: 0};
+global.setTimeout = () => {};
+global.fetch = async () => ({ok: true, json: async () => ({
+ entries: [{text: '实时测试日志'}], cursor: 1, truncated: false
+})});
+'''
+        check = '''
+setImmediate(() => {
+ if (!elements.status.textContent.startsWith('已连接')) throw new Error('Not connected');
+ if (elements.logs.textContent !== '实时测试日志') throw new Error('Missing log text');
+});
+'''
+        result = subprocess.run(['node'], input=setup + script + check, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)

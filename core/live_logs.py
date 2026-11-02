@@ -10,7 +10,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 
-PAGE = '''<!doctype html><meta charset="utf-8"><title>脚本实时日志</title>
+PAGE = r'''<!doctype html><meta charset="utf-8"><title>脚本实时日志</title>
 <style>body{background:#141820;color:#e6edf3;font:14px monospace;margin:20px}
 header{position:sticky;top:0;background:#141820;padding:10px 0}button{margin-right:10px}
 pre{white-space:pre-wrap;overflow-wrap:anywhere}#status{color:#a6c8ff}</style>
