@@ -874,12 +874,17 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                           f"距启动:{time.perf_counter() - ground_started_at:.3f}s")
                     first_ground_frame = False
 
+                f_started_at = time.perf_counter()
                 current_f_score = 0.0
                 if f_tmpl is not None:
                     res_f = cv2.matchTemplate(game_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
                     current_f_score = cv2.minMaxLoc(res_f)[1]
 
-                if self.handle_endgame(game_img, current_window_info):
+                f_ms = (time.perf_counter() - f_started_at) * 1000
+                endgame_started_at = time.perf_counter()
+                endgame_found = self.handle_endgame(game_img, current_window_info)
+                endgame_ms = (time.perf_counter() - endgame_started_at) * 1000
+                if endgame_found:
                     self.has_marked_this_match = False
                     stop_all()
                     break
@@ -887,7 +892,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 h, w = game_img.shape[:2]
                 center_x = w / 2
 
+                radar_started_at = time.perf_counter()
                 dist = self.get_radar_distance(game_img)
+                radar_ms = (time.perf_counter() - radar_started_at) * 1000
+                push_ms = close_ms = 0.0
 
                 # ==========================================
                 # 🌟 电子围栏与动态偏航纠正 
@@ -933,14 +941,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # 全局智能 F 交互拦截器
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
+                    push_started_at = time.perf_counter()
                     door_prompt_score = 0.0
                     for tmpl in open_door_templates:
                         res_d = cv2.matchTemplate(game_img, tmpl, cv2.TM_CCOEFF_NORMED)
                         door_prompt_score = max(door_prompt_score, cv2.minMaxLoc(res_d)[1])
+                    push_ms = (time.perf_counter() - push_started_at) * 1000
+                    close_started_at = time.perf_counter()
                     close_prompt_score = 0.0
                     if door2_tmpl is not None:
                         res_close = cv2.matchTemplate(game_img, door2_tmpl, cv2.TM_CCOEFF_NORMED)
                         close_prompt_score = cv2.minMaxLoc(res_close)[1]
+                    close_ms = (time.perf_counter() - close_started_at) * 1000
                     found_close_prompt = close_prompt_score > 0.7
                     found_door_prompt = door_prompt_score > 0.7 and not found_close_prompt
                     # 门提示优先，未对齐时禁止落入普通物资交互分支。
@@ -1013,6 +1025,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                           f"距标点:{dist} 截图:{capture_ms:.1f}ms "
                           f"模板及导航:{template_ms:.1f}ms YOLO:{yolo_ms:.1f}ms "
                           f"本轮至决策:{(diagnostic_now - loop_started_at) * 1000:.1f}ms")
+                    print(f"[检测分项] F匹配:{f_ms:.1f}ms 结束界面:{endgame_ms:.1f}ms "
+                          f"小地图测距:{radar_ms:.1f}ms 推门匹配:{push_ms:.1f}ms "
+                          f"关闭门匹配:{close_ms:.1f}ms")
                     if valid_door_box:
                         print(f"[门框诊断] 中心:({valid_door_box['x']:.1f},{valid_door_box['y']:.1f}) "
                               f"宽高:({valid_door_box['w']:.1f},{valid_door_box['h']:.1f}) "

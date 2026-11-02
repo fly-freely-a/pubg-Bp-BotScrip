@@ -14,12 +14,13 @@ PAGE = r'''<!doctype html><meta charset="utf-8"><title>脚本实时日志</title
 <style>body{background:#141820;color:#e6edf3;font:14px monospace;margin:20px}
 header{position:sticky;top:0;background:#141820;padding:10px 0}button{margin-right:10px}
 pre{white-space:pre-wrap;overflow-wrap:anywhere}#status{color:#a6c8ff}</style>
-<header><button id="scroll">暂停滚动</button><button id="copy">复制当前日志</button>
+<header><button id="scroll">暂停滚动</button><button id="pause">暂停更新</button><button id="copy">复制当前日志</button>
 <span id="status">连接中…</span></header><pre id="logs"></pre>
 <script>
-let cursor=0, autoScroll=true, lines=[];
+let cursor=0, autoScroll=true, paused=false, lines=[];
 const output=document.getElementById('logs'), status=document.getElementById('status');
 document.getElementById('scroll').onclick=function(){autoScroll=!autoScroll;this.textContent=autoScroll?'暂停滚动':'恢复滚动'};
+document.getElementById('pause').onclick=function(){paused=!paused;this.textContent=paused?'恢复更新':'暂停更新';status.textContent=paused?'已暂停更新，可选中复制日志':'正在恢复更新…'};
 document.getElementById('copy').onclick=async()=>{
  const text=lines.join('\n');
  try{await navigator.clipboard.writeText(text);status.textContent='已复制'}
@@ -27,16 +28,18 @@ document.getElementById('copy').onclick=async()=>{
  status.textContent=document.execCommand('copy')?'已复制':'请手动选择日志复制';t.remove()}
 };
 async function poll(){
+ if(paused){setTimeout(poll,500);return}
  try{
   const response=await fetch('/logs?after='+cursor,{cache:'no-store'});
   if(!response.ok)throw new Error(response.status);
   const data=await response.json();
+  if(paused)return;
   if(data.truncated)lines.push('[日志提示] 部分较早日志已滚出缓存，完整记录见游戏电脑日志文件');
   for(const entry of data.entries)lines.push(entry.text);
   cursor=data.cursor;lines=lines.slice(-2000);output.textContent=lines.join('\n');
   status.textContent='已连接 · 每0.5秒刷新';if(autoScroll)window.scrollTo(0,document.body.scrollHeight);
- }catch(e){status.textContent='连接中断，正在重试…'}
- setTimeout(poll,500);
+ }catch(e){if(!paused)status.textContent='连接中断，正在重试…'}
+ finally{setTimeout(poll,500)}
 }poll();
 </script>'''
 

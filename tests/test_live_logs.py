@@ -101,3 +101,28 @@ setImmediate(() => {
 '''
         result = subprocess.run(['node'], input=setup + script + check, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is used only for browser pause validation')
+    def test_pause_freezes_inflight_updates_and_resume_catches_up(self):
+        script = PAGE.split('<script>', 1)[1].split('</script>', 1)[0]
+        setup = '''
+const elements = {};let requests=0;
+global.document={getElementById:id=>elements[id]||={textContent:''},body:{scrollHeight:0}};
+global.window={scrollTo:()=>{}};global.setTimeout=()=>{};
+global.fetch=async()=>{requests++;return {ok:true,json:async()=>({
+ entries:[{text:'新日志'}],cursor:1,truncated:false
+})}};
+'''
+        check = '''
+elements.pause.onclick();
+(async()=>{
+ await new Promise(resolve=>setImmediate(resolve));
+ if(elements.logs.textContent!=='')throw new Error('Paused page changed during in-flight request');
+ if(cursor!==0)throw new Error('Paused page advanced cursor');
+ await poll();if(requests!==1)throw new Error('Paused page fetched new logs');
+ elements.pause.onclick();await poll();
+ if(elements.logs.textContent!=='新日志'||cursor!==1)throw new Error('Resume failed to catch up');
+})().catch(error=>{console.error(error);process.exitCode=1});
+'''
+        result = subprocess.run(['node'], input=setup + script + check, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
