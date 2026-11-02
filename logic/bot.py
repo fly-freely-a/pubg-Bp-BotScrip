@@ -39,7 +39,7 @@ from ultralytics import YOLO
 
 from config import Config
 from core.mixins import WindowMixin, VisionMixin, MathMixin, ActionMixin
-# from core.door_diagnostics import DoorDiagnosticRecorder  # 截图诊断暂时停用
+from core.door_diagnostics import DoorDiagnosticRecorder
 
 
 class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
@@ -794,7 +794,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # last_door_snapshot = 0.0
         # diagnostic_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
         #                               'debug', 'door_interaction')
-        # door_recorder = DoorDiagnosticRecorder(diagnostic_dir)
+        generic_f_directory = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                           'debug', 'door_interaction', 'generic_f')
+        generic_f_recorder = DoorDiagnosticRecorder(generic_f_directory)
         # print(f"📷 [开门诊断] 接近门时最多每0.25秒采样一次，按时间戳保存至 {diagnostic_dir}")
 
         door_path = os.path.join(self.image_dir, 'door.png')
@@ -906,7 +908,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 capture_ms = (time.perf_counter() - capture_started_at) * 1000
                 template_started_at = time.perf_counter()
                 yolo_ms = 0.0
-                # frame_captured_at = time.time()  # 截图诊断暂时停用
+                frame_captured_at = time.time()
                 if game_img is None: time.sleep(0.05); continue
                 if first_ground_frame:
                     print(f"[地面启动] 首张有效截图:{capture_ms:.1f}ms "
@@ -1000,6 +1002,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if door_ready or item_ready:
                         stop_all()
                         interaction_is_door = door_ready
+                        interaction_origin_state = bot_state
                         bot_state = "VERIFY_DOOR"
                         global_progress_time = time.time()
                         # 当前帧直接交互，开门不依赖 F 图标得分。
@@ -1594,6 +1597,14 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         print(f"   🎯 匹配【推门】且门已对齐！(推门:{door_prompt_score:.2f}) 按 F 开门，准备突入！")
                     else:
                         print(f"   📦 普通 F 提示！(F:{current_f_score:.2f}) 按 F 交互，不执行进屋！")
+                        queued = generic_f_recorder.submit(game_img, dict(
+                            event='generic_f', captured_at=frame_captured_at,
+                            state=interaction_origin_state, f_score=float(current_f_score),
+                            f_threshold=0.72, door_score=float(door_prompt_score),
+                            door_threshold=0.70, has_aligned_door=bool(has_aligned_door),
+                            marker_distance=dist))
+                        if not queued:
+                            print('[普通F截图] 后台保存繁忙，本次未保存')
                     print(f"[交互时序] 发送F 类型:{'开门' if interaction_is_door else '普通交互'} "
                           f"地面启动后:{time.perf_counter() - ground_started_at:.3f}s "
                           f"本轮截图开始至按键:{time.perf_counter() - loop_started_at:.3f}s")
@@ -1705,7 +1716,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             print(f"\n❌ 地面执行发生严重错误:\n{traceback.format_exc()}")
         finally:
             stop_all()
-            # door_recorder.close()  # 截图诊断暂时停用
+            generic_f_recorder.close()
             print("\n🏁 自动地面突击序列彻底结束，所有按键已释放。")
 
     # ----------------------------------------------------------------------
