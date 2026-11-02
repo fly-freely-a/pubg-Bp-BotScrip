@@ -847,12 +847,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # 把算出来的位移，切碎成每次只移动 3 像素，利用 for 循环瞬间执行完
                 # 游戏底层会把它识别成一次“极度平滑的鼠标拖拽”！
             step = 3 if move_dist > 0 else -3
+            full_steps, remainder = divmod(abs(move_dist), 3)
             if time.perf_counter() - last_turn_diagnostic >= 1.0:
                 print(f"[门口转向] 偏差:{diff_x:.1f}px 计算修正:{move_dist} "
-                      f"实际发送总量:{abs(move_dist) * step} 次数:{abs(move_dist)}")
+                      f"实际发送总量:{move_dist} 次数:{full_steps + bool(remainder)}")
                 last_turn_diagnostic = time.perf_counter()
-            for _ in range(abs(move_dist)):
+            for _ in range(full_steps):
                 win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, step, 0, 0, 0)
+            if remainder:
+                win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, remainder if step > 0 else -remainder, 0, 0, 0)
         # 👆 复制到这里结束
 
         bot_state = "COMPASS_RUSH"
