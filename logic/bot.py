@@ -1192,6 +1192,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             stop_all()
                             continue
                     diff_x = toilet_box['x'] - center_x
+                    if not valid_door_box and toilet_box['h'] >= h * 0.40 and abs(diff_x) <= 100.0:
+                        print("\n🔎 厕所已到观察距离但未发现门，停止直行，开始绕行找门...")
+                        stop_all()
+                        bot_state = "CIRCLING"
+                        circle_start = time.time()
+                        last_circle_pause_time = time.time()
+                        last_action_log = ""
+                        global_progress_time = time.time()
+                        continue
                     if abs(diff_x) > 100.0:
                         if last_action_log != "VISUAL_ADJUST":
                             print(f"\n🛑 厕所偏离(偏差:{diff_x:.1f})！刹车纯视觉对正！")
