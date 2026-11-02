@@ -174,6 +174,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 best_shape = t_data["template"].shape[:2]
 
         user_x, user_y = actual_w // 2, actual_h // 2
+        self.last_radar_diagnostic = dict(
+            region=(mm_x1, mm_y1, mm_x2, mm_y2), score=float(best_val),
+            assumed_player=(user_x, user_y),
+            matched_target=(best_loc[0] + best_shape[1] // 2,
+                            best_loc[1] + best_shape[0] // 2) if best_loc is not None else None,
+            template_size=best_shape, accepted=best_val > 0.45)
         if best_val > 0.45:
             th, tw = best_shape
             target_x = best_loc[0] + tw // 2
@@ -565,6 +571,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         return False
 
     def execute_ai_bot_behavior(self, window_info, jump_distance=0.0):
+        air_started_at = time.time()
+        last_air_log = 0.0
+        last_air_distance_valid = None
+        dive_exit_reason = '俯冲达到30秒上限（未确认落地）'
         cw, ch = window_info['game_size']
         center_x = cw / 2
         center_y = ch / 2
@@ -615,8 +625,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             time.sleep(0.5)
             pydirectinput.keyDown('w')
             fly_start = time.time()
+            print(f"[空中阶段] 进入平飞 跳舱距离参数:{jump_distance:.1f}px（大地图） "
+                  f"俯冲门槛:小地图距离<=80px 空中流程已过:{fly_start - air_started_at:.2f}s")
 
             # 👇 2. 实时雷达平飞循环 (取代了原来的固定时间 w_time)
+            dist = None
             while time.time() - fly_start < 60:  # 设个60秒最大超时保护
                 if self.is_paused: time.sleep(0.1); fly_start += 0.1; continue
                 if self.check_interrupt(): return
@@ -637,16 +650,27 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, -10, 0, 0, 0)
 
                 # 👇 3. 核心：读取小地图测距，距离 <= 40px 立刻跳出平飞循环！
+                radar_started_at = time.time()
                 dist = self.get_radar_distance(d_img)
+                radar_finished_at = time.time()
+                if radar_finished_at - last_air_log >= 0.5 or (dist is not None) != last_air_distance_valid:
+                    print(f"[空中测距] 阶段:平飞 已平飞:{radar_finished_at - fly_start:.2f}s "
+                          f"距离:{dist} 有效:{dist is not None} 罗盘黄点X:{tx} "
+                          f"测距耗时:{radar_finished_at - radar_started_at:.3f}s "
+                          f"细节:{getattr(self, 'last_radar_diagnostic', None)}")
+                    last_air_log = radar_finished_at
+                    last_air_distance_valid = dist is not None
                 if dist is not None:
                     if dist <= 80.0:
-                        print(f"\n   🦅 雷达距离 {dist:.1f}px <= 40px！到达目标上空，立即执行垂直俯冲！")
+                        print(f"\n   🦅 雷达距离 {dist:.1f}px <= 80px，结束平飞，进入俯冲！")
                         break  # 打破平飞循环，进入下方的视角向下+俯冲阶段！
                     else:
                         print(f"   ✈️ 空中平飞中... 当前雷达距离: {dist:.1f}px", end='\r')
 
                 time.sleep(0.04)
 
+            print(f"[空中阶段] 平飞循环结束 耗时:{time.time() - fly_start:.2f}s "
+                  f"原因:{'距离进入80px' if dist is not None and dist <= 80.0 else '达到平飞时间上限'}")
             # 把视角拉到最底（衔接后面的 shift+w 俯冲）
             for _ in range(15): self.rotate_mouse_raw(0, 250); time.sleep(0.03)
         pydirectinput.keyDown('shift')
@@ -655,7 +679,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         has_seen_flying_ui = False
         lost_flying_ui_count = 0
-        print("   🪂 进入俯冲阶段，开启【20秒后精准落地侦测】...")
+        print("   🪂 进入俯冲阶段，8秒后检测飞行计速器；30秒上限；盘旋门槛<=20px。")
         while time.time() - dive_start < 30:
             if self.is_paused: time.sleep(0.1); dive_start += 0.1; continue
             if self.check_interrupt():
@@ -693,6 +717,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         print()  # 换行防覆盖
                         print(f"\n   🛬 【飞行计速器瞬间消失】！确认人物已双脚触地！")
                         print(f"   ⏱️ 极速打断俯冲，为您省下 {30.0 - dive_time:.1f} 秒！")
+                        dive_exit_reason = '飞行计速器连续两次消失'
                         break
             # 🎯 核心所在：打破30秒死循环，提前松伞！
 
@@ -704,19 +729,34 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             else:
                 # 🌟 修复俯冲时的抢鼠标拉扯
                 self.rotate_mouse_raw(80, 0)
+            radar_started_at = time.time()
             dist = self.get_radar_distance(d_img)
+            radar_finished_at = time.time()
+            if radar_finished_at - last_air_log >= 0.5 or (dist is not None) != last_air_distance_valid:
+                print(f"[空中测距] 阶段:俯冲 已俯冲:{radar_finished_at - dive_start:.2f}s "
+                      f"距离:{dist} 有效:{dist is not None} D当前按下:{is_d_pressed} 罗盘黄点X:{tx} "
+                      f"测距耗时:{radar_finished_at - radar_started_at:.3f}s "
+                      f"细节:{getattr(self, 'last_radar_diagnostic', None)}")
+                last_air_log = radar_finished_at
+                last_air_distance_valid = dist is not None
             if dist is not None and dist <= 20.0:
                 if not is_d_pressed:
+                    print(f"[盘旋按键] 按下D 已俯冲:{time.time() - dive_start:.2f}s 距离:{dist:.1f}px")
                     pydirectinput.keyDown('d')
                     is_d_pressed = True
                     print(f"   🌪️ 极近距离 ({dist:.1f}px)！切入 W+D 螺旋下坠姿态！")
             else:
                 if is_d_pressed:
+                    print(f"[盘旋按键] 释放D 已俯冲:{time.time() - dive_start:.2f}s "
+                          f"原因:{'测距失败' if dist is None else '距离超过20px'} 距离:{dist}")
                     pydirectinput.keyUp('d')
                     is_d_pressed = False
+        print(f"[空中阶段] 结束俯冲 耗时:{time.time() - dive_start:.2f}s "
+              f"原因:{dive_exit_reason} 结束前D按下:{is_d_pressed}")
         pydirectinput.keyUp('shift')
         pydirectinput.keyUp('w')
         if is_d_pressed:
+            print("[盘旋按键] 释放D 原因:俯冲流程结束")
             pydirectinput.keyUp('d')
         time.sleep(1.5)
         for _ in range(12): self.rotate_mouse_raw(0, -140); time.sleep(0.04)
