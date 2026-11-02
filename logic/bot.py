@@ -477,7 +477,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             mx, my = new_window_info['map_offset']
             map_img = game_img[my:my + self.MAP_SIZE, mx:mx + self.MAP_SIZE]
             # 恢复原来的 User 模板/黄色圆圈定位，但只在座位图确认登机后使用。
-            user_found, user_pos, plane_score, position_source = self.find_user_on_map(map_img)
+            user_found, user_pos, plane_score, position_source = self.find_user_on_map(
+                map_img, exclude_position=self.best_jump_point_coords)
             rejection_reason = ('未找到位置' if not user_found else
                                 '得分不足0.89' if plane_score < 0.89 else '通过')
             user_found = user_found and plane_score >= 0.89

@@ -68,5 +68,6 @@ class FlightTrackingTests(unittest.TestCase):
     def test_two_seat_confirmations_start_original_user_tracking(self):
         _, controller = self.replay(True, True)
         self.assertEqual(controller.find_plane_seats.call_count, 2)
-        controller.find_user_on_map.assert_called()
+        controller.find_user_on_map.assert_called_with(
+            unittest.mock.ANY, exclude_position=(100, 100))
 
