@@ -874,6 +874,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         has_aligned_door = False
         centered_door_count = 0
         near_door_memory = False
+        memory_forward_steps = 0
+        last_generic_f_at = float('-inf')
 
         last_space_time = 0.0
         verify_count = 0
@@ -994,7 +996,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     # 门提示优先，未对齐时禁止落入普通物资交互分支。
                     door_ready = (found_door_prompt and bot_state == "APPROACH_DOOR"
                                   and has_aligned_door)
-                    item_ready = not found_door_prompt and current_f_score > 0.72
+                    item_ready = (not found_door_prompt and current_f_score > 0.72
+                                  and time.time() - last_generic_f_at >= 5.0)
                     if bot_state == "APPROACH_DOOR" and time.time() - last_door_diagnostic >= 2.0:
                         print(f"\n🔎 [开门诊断] 推门得分:{door_prompt_score:.4f} 阈值:>0.70 "
                               f"F得分:{current_f_score:.4f} "
@@ -1076,7 +1079,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 if bot_state != "APPROACH_DOOR":
                     centered_door_count = 0
                     near_door_memory = False
+                    memory_forward_steps = 0
                 elif valid_door_box:
+                    memory_forward_steps = 0
                     if abs(valid_door_box['x'] - center_x) <= 80 and valid_door_box['h'] >= h * 0.20:
                         centered_door_count += 1
                     else:
@@ -1448,17 +1453,20 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if not valid_door_box:
                         time_since_lost = time.time() - global_last_door_time
 
-                        if near_door_memory and time_since_lost < 2.0:
-                            set_key('shift', False)
-                            set_key('a', False)
-                            set_key('d', False)
+                        if near_door_memory and memory_forward_steps < 4:
+                            stop_all()
                             set_key('ctrl', True)
+                            step_started_at = time.perf_counter()
                             set_key('w', True)
-                            is_sprinting = False
+                            try:
+                                time.sleep(max(0.0, 0.5 - (time.perf_counter() - step_started_at)))
+                            finally:
+                                stop_all()
+                            memory_forward_steps += 1
+                            print(f"[近门记忆] 慢进第{memory_forward_steps}/4段（0.5秒），已停步，重新截图检查F")
                             global_progress_time = time.time()
-                            if last_action_log != "MEMORY_APPROACH":
-                                print("[近门记忆] 连续3次近门居中，短暂丢失后 Ctrl+W 慢进，最多2秒，等待F提示")
-                                last_action_log = "MEMORY_APPROACH"
+                            last_action_log = "MEMORY_APPROACH"
+                            continue  # 停稳后从主循环获取新画面，不能沿用前进前的截图。
                         elif time_since_lost < 1:
                             if last_action_log != "BLIND_RUSH":
                                 print("\n⚠️ 贴脸大门视野闪断！保持 Ctrl+W 惯坚盲进！")
@@ -1630,6 +1638,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     print(f"[交互时序] 发送F 类型:{'开门' if interaction_is_door else '普通交互'} "
                           f"地面启动后:{time.perf_counter() - ground_started_at:.3f}s "
                           f"本轮截图开始至按键:{time.perf_counter() - loop_started_at:.3f}s")
+                    if not interaction_is_door:
+                        last_generic_f_at = time.time()
                     win32api.keybd_event(0x46, 0, 0, 0)
                     time.sleep(0.05)
                     win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)

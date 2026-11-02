@@ -39,17 +39,26 @@ class NearDoorMemoryTests(unittest.TestCase):
         self.observe()
         self.assertFalse(self.namespace['near_door_memory'])
 
-    def test_memory_slow_forward_is_time_limited_and_releases_side_keys(self):
+    def test_memory_forward_stops_after_each_half_second_and_limits_to_four_steps(self):
         branch = copy.deepcopy(next(n for n in ast.walk(self.tree) if isinstance(n, ast.If)
-                                    and ast.unparse(n.test) == 'near_door_memory and time_since_lost < 2.0'))
-        branch.orelse = []  # Isolate only the newly added branch, not the existing fallback.
-        for elapsed, expected in ((1.5, True), (2.0, False)):
-            keys = Mock()
-            namespace = dict(near_door_memory=True, time_since_lost=elapsed, set_key=keys,
-                             time=SimpleNamespace(time=lambda: 10), last_action_log='', print=Mock())
-            exec(compile(ast.Module(body=[branch], type_ignores=[]), '<memory>', 'exec'), namespace)
-            if expected:
-                self.assertEqual([call.args for call in keys.call_args_list],
-                                 [('shift', False), ('a', False), ('d', False), ('ctrl', True), ('w', True)])
-            else:
-                keys.assert_not_called()
+                                    and ast.unparse(n.test) == 'near_door_memory and memory_forward_steps < 4'))
+        branch.orelse = []
+        class EndIteration(ast.NodeTransformer):
+            def visit_Continue(self, node):
+                return ast.copy_location(ast.Break(), node)
+        module = ast.fix_missing_locations(ast.Module(body=[ast.While(
+            test=ast.Constant(True), body=[EndIteration().visit(branch), ast.Break()], orelse=[])],
+            type_ignores=[]))
+        keys, stop, sleep = Mock(), Mock(), Mock()
+        namespace = dict(near_door_memory=True, memory_forward_steps=0, set_key=keys,
+                         stop_all=stop, time=SimpleNamespace(time=lambda: 10,
+                         perf_counter=lambda: 0, sleep=sleep), last_action_log='', print=Mock())
+        for expected in range(1, 5):
+            exec(compile(module, '<memory_step>', 'exec'), namespace)
+            self.assertEqual(namespace['memory_forward_steps'], expected)
+            self.assertEqual(stop.call_count, expected * 2)
+            sleep.assert_called_with(0.5)
+        exec(compile(module, '<memory_step>', 'exec'), namespace)
+        self.assertEqual(namespace['memory_forward_steps'], 4)
+        self.assertEqual(sleep.call_count, 4)
+        self.assertEqual(keys.call_count, 8)
