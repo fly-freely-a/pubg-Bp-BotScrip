@@ -26,6 +26,7 @@ os.environ['YOLO_UPDATE_CHECK'] = 'False'   # 严禁它去连外网检查新版�
 os.environ['WANDB_DISABLED'] = 'true'       # 禁用第三方统计工具探测
 os.environ['YOLO_TRACK'] = 'False'          # 彻底禁用遥测
 import cv2
+import numpy as np
 import math
 import random
 import glob
@@ -167,6 +168,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 res = cv2.matchTemplate(minimap, t_data["template"], cv2.TM_CCOEFF_NORMED, mask=t_data["mask"])
             else:
                 res = cv2.matchTemplate(minimap, t_data["template"], cv2.TM_CCOEFF_NORMED)
+            # 掩码匹配可能产生非有限值，不能让 inf 压过合法候选。
+            np.nan_to_num(res, copy=False, nan=-1.0, posinf=-1.0, neginf=-1.0)
             _, max_val, _, max_loc = cv2.minMaxLoc(res)
             if max_val > best_val:
                 best_val = max_val
