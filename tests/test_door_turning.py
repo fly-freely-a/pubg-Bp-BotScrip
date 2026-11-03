@@ -23,7 +23,7 @@ class DoorTurningTests(unittest.TestCase):
         return movements
 
     def test_actual_displacement_matches_capped_calculation_in_both_directions(self):
-        for offset in (20, -20, 22.5, -22.5, 85.5, -112.5, 199.5, -10000, 10000):
+        for offset in (40, -40, 42.5, -42.5, 85.5, -112.5, 199.5, -10000, 10000):
             with self.subTest(offset=offset):
                 steps = self.turn(offset)
                 expected = max(-80, min(80, int(offset * .4)))
@@ -31,7 +31,7 @@ class DoorTurningTests(unittest.TestCase):
                 self.assertTrue(all(0 < abs(step) <= 3 for step in steps))
 
     def test_dead_zone_does_not_move_mouse(self):
-        for offset in (0, 19.9, -19.9):
+        for offset in (0, 20, -20, 39.9, -39.9):
             self.assertEqual(self.turn(offset), [])
 
     def test_remainder_is_not_lost(self):

@@ -835,9 +835,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             # 👇 从这里开始复制：【高频 1 像素平滑拖拽 + 死区锁死引擎】
         def smooth_glide_mouse(diff_x):
             nonlocal last_turn_diagnostic
-                # 1. 【死区锁死】如果门框中心距离屏幕中心小于 20 像素，视为“已完美对准”！
+                # 1. 【死区锁死】如果门框中心距离屏幕中心小于 40 像素，视为“已完美对准”！
                 # 此时直接 return，切断一切鼠标输入，彻底解决对准后还左右发抖的问题。
-            if abs(diff_x) < 20:
+            if abs(diff_x) < 40:
                     return
 
                 # 2. 【引力吸附算法】不要一次性拉满，每次只拉回偏差的 40%
