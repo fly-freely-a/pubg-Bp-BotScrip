@@ -36,8 +36,6 @@ class DoorDiagnosticRecorder:
         metadata['image_file'] = image_path.name
         with (self.directory / f'{stem}.json').open('x', encoding='utf-8') as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
-        if metadata.get('event') == 'generic_f':
-            print(f'[普通F截图] 已保存:{image_path}')
 
     def _report_result(self):
         try:

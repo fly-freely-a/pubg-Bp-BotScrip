@@ -26,7 +26,6 @@ os.environ['YOLO_UPDATE_CHECK'] = 'False'   # 严禁它去连外网检查新版�
 os.environ['WANDB_DISABLED'] = 'true'       # 禁用第三方统计工具探测
 os.environ['YOLO_TRACK'] = 'False'          # 彻底禁用遥测
 import cv2
-import numpy as np
 import math
 import random
 import glob
@@ -40,7 +39,7 @@ from ultralytics import YOLO
 
 from config import Config
 from core.mixins import WindowMixin, VisionMixin, MathMixin, ActionMixin
-from core.door_diagnostics import DoorDiagnosticRecorder
+# from core.door_diagnostics import DoorDiagnosticRecorder  # 截图诊断暂时停用
 
 
 class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
@@ -168,8 +167,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 res = cv2.matchTemplate(minimap, t_data["template"], cv2.TM_CCOEFF_NORMED, mask=t_data["mask"])
             else:
                 res = cv2.matchTemplate(minimap, t_data["template"], cv2.TM_CCOEFF_NORMED)
-            # 掩码匹配可能产生非有限值，不能让 inf 压过合法候选。
-            np.nan_to_num(res, copy=False, nan=-1.0, posinf=-1.0, neginf=-1.0)
             _, max_val, _, max_loc = cv2.minMaxLoc(res)
             if max_val > best_val:
                 best_val = max_val
@@ -177,12 +174,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 best_shape = t_data["template"].shape[:2]
 
         user_x, user_y = actual_w // 2, actual_h // 2
-        self.last_radar_diagnostic = dict(
-            region=(mm_x1, mm_y1, mm_x2, mm_y2), score=float(best_val),
-            assumed_player=(user_x, user_y),
-            matched_target=(best_loc[0] + best_shape[1] // 2,
-                            best_loc[1] + best_shape[0] // 2) if best_loc is not None else None,
-            template_size=best_shape, accepted=best_val > 0.45)
         if best_val > 0.45:
             th, tw = best_shape
             target_x = best_loc[0] + tw // 2
@@ -345,9 +336,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             print(f"   🎯 已直接标记精确坐标点: {best_target['name']}")
             self.initial_target_coords = best_coords
             self.current_target_id = best_target['id']
-            if min_dist > 130.0:
+            if min_dist > 100.0:
                 print(f"\n⛔ 警告: 目标点 {best_target['name']} 理论最短距离为 {min_dist:.1f}px")
-                print("⛔ 距离超过战术底线 (130px)！航线过偏，准备主动秒退本局...")
+                print("⛔ 距离超过战术底线 (100px)！航线过偏，准备主动秒退本局...")
                 pydirectinput.keyDown('m');
                 time.sleep(0.1);
                 pydirectinput.keyUp('m');
@@ -388,7 +379,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             return True
 
     def wait_for_jump(self, window_info, theoretical_min_dist):
-        print("🪂 启动实时空降追踪模式 (座位确认登机版)...")
+        print("🪂 启动实时空降追踪模式 (纯动能追踪版)...")
         jump_loop_count = 0
         min_recorded_dist = float('inf')
         base_trigger = theoretical_min_dist + 50.0
@@ -399,20 +390,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_log_print_time = 0
         jump_timeout_start = None
         has_boarded_plane = False
-        seat_confirmations = 0
-        plane_confirmations = 0
+        last_seen_time = time.time()
         last_user_pos = None
-        last_user_pos_time = None
+        last_user_pos_time = time.time()
         fly_past_counter = 0
-        last_tracking_log = 0.0
-        frame_started_at = None
 
         def execute_safe_jump(current_win_info, j_dist):
-            decision_at = time.time()
-            print(f"\n[跳伞诊断] 决策时刻:{decision_at:.3f} 来源:{position_source} "
-                  f"位置:{user_pos} 标点:{self.best_jump_point_coords} "
-                  f"本次距离参数:{j_dist:.1f}px 最近距离:{min_recorded_dist:.1f}px "
-                  f"飞过计数:{fly_past_counter} 截图至决策:{decision_at - frame_started_at:.3f}s")
             cw, ch = current_win_info['game_size']
             cx = current_win_info['screen_pos'][0] + current_win_info['border'][0] + int(cw / 2)
             cy = current_win_info['screen_pos'][1] + current_win_info['border'][1] + int(ch / 2)
@@ -423,12 +406,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             time.sleep(0.3)
 
-            print(f"[跳伞诊断] 发送关闭地图 M 时刻:{time.time():.3f}")
             pydirectinput.keyDown('m');
             time.sleep(0.25);
             pydirectinput.keyUp('m');
             time.sleep(0.5)
-            print(f"[跳伞诊断] 发送跳舱 F 时刻:{time.time():.3f} 决策至按键:{time.time() - decision_at:.3f}s")
             pydirectinput.keyDown('f');
             time.sleep(0.2);
             pydirectinput.keyUp('f');
@@ -445,7 +426,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         while self.running and jump_loop_count < 600:
             if self.is_paused: time.sleep(1); continue
             jump_loop_count += 1
-            frame_started_at = time.time()
             game_img, new_window_info = self.capture_game_screen()
             if game_img is None: time.sleep(0.2); continue
 
@@ -462,62 +442,93 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 pydirectinput.keyUp('m');
                 time.sleep(1.0)
 
-                continue  # 等下一张截图确认地图已打开。
-
-            if not has_boarded_plane:
-                found_seats, seat_score = self.find_plane_seats(game_img)
-                seat_confirmations = seat_confirmations + 1 if found_seats else 0
-                if seat_confirmations < 2:
-                    if time.time() - last_log_print_time >= 1:
-                        print(f"   [登机确认] 座位得分:{seat_score:.2f} 连续确认:{seat_confirmations}/2，保持等待")
-                        last_log_print_time = time.time()
-                    time.sleep(0.2)
-                    continue
-                has_boarded_plane = True
-                jump_timeout_start = time.time()
-                print("   [登机确认] 已连续识别飞机座位，等待地图飞机进入画面...")
+            found_count4, _, _ = self.find_image(game_img, 'count4')
+            if found_count4:
+                jump_timeout_start = None
+                has_boarded_plane = False
+                last_user_pos = None
+                time.sleep(0.5)
+                continue
 
             mx, my = new_window_info['map_offset']
             map_img = game_img[my:my + self.MAP_SIZE, mx:mx + self.MAP_SIZE]
-            # 恢复原来的 User 模板/黄色圆圈定位，但只在座位图确认登机后使用。
-            user_found, user_pos, plane_score, position_source = self.find_user_on_map(
-                map_img, exclude_position=self.best_jump_point_coords)
-            rejection_reason = ('未找到位置' if not user_found else
-                                '得分不足0.89' if plane_score < 0.89 else '通过')
-            user_found = user_found and plane_score >= 0.89
-            now = time.time()
-            if user_found and last_user_pos is not None:
-                elapsed = now - last_user_pos_time
-                movement = math.hypot(user_pos[0] - last_user_pos[0], user_pos[1] - last_user_pos[1])
-                if movement > max(30.0, elapsed * 80.0):
+
+            # ==================================================
+            # 📊 第一步：先把所有嫌疑人的得分都算出来！
+            # ==================================================
+            # 1. 用 user 的照片去匹配
+            user_found_raw, user_pos_raw, user_conf_raw, _ = self.find_user_on_map(map_img)
+            # 2. 用 target 的照片去匹配
+            found_t, conf_t, pos_t = self.find_image(map_img, 'target')
+            # 3. 用飞机的照片去匹配
+            found_feiji, conf_feiji, pos_feiji = self.find_image(map_img, 'feiji')
+
+            # ==================================================
+            # 🖨️ 视觉雷达监控 (每 1 秒强制换行打印一次，绝不被覆盖)
+            # ==================================================
+            curr_sec = int(time.time())
+            last_print_sec = getattr(self, 'last_radar_print_sec', 0)
+
+            if curr_sec > last_print_sec:
+                print(
+                    f"   📊 [视觉雷达] User得分:{user_conf_raw:.2f} | Target得分:{conf_t:.2f} | 飞机得分:{conf_feiji:.2f}")
+                self.last_radar_print_sec = curr_sec
+
+            # ==================================================
+            # 🚀 第三步：极简逻辑判定 (只认高分！)
+            # ==================================================
+            if found_feiji and conf_feiji > 0.50:  # 稍微放宽点飞机的条件，防止蓝海/绿地背景干扰
+                user_found = True
+                user_pos = pos_feiji
+                user_conf = conf_feiji
+            else:
+                user_found = user_found_raw
+                user_pos = user_pos_raw
+                user_conf = user_conf_raw
+
+                # 🛡️ 核心修改：大道至简！把原本 0.48 的门槛直接拔高到 0.65！
+                # 这样即使它把 target 认成了 user (得分大概0.5左右)，也绝对及格不了！
+                if user_found and user_conf < 0.89:
                     user_found = False
-                    rejection_reason = (f'位置跳变:{movement:.1f}px>'
-                                        f'{max(30.0, elapsed * 80.0):.1f}px 间隔:{elapsed:.3f}s')
-            if now - last_tracking_log >= 0.5:
-                diagnostic_distance = (math.hypot(user_pos[0] - self.best_jump_point_coords[0],
-                                                  user_pos[1] - self.best_jump_point_coords[1])
-                                       if user_pos is not None and self.best_jump_point_coords else None)
-                print(f"\n[追踪诊断] 时刻:{now:.3f} 已登机:{now - jump_timeout_start:.2f}s "
-                      f"来源:{position_source} 得分:{plane_score:.3f} 位置:{user_pos} "
-                      f"标点:{self.best_jump_point_coords} 距离:{diagnostic_distance} "
-                      f"判定:{rejection_reason} 连续有效:{plane_confirmations + 1 if user_found else 0} "
-                      f"截图处理:{now - frame_started_at:.3f}s")
-                last_tracking_log = now
-            if not user_found:
-                plane_confirmations = 0
-                fly_past_counter = 0
-                # 没有有效位置或暂时丢失时保持等待，不以超时触发跳伞。
-                last_user_pos = None
-                if now - last_log_print_time >= 1:
-                    print(f"   [地图定位] 来源:{position_source} 得分:{plane_score:.2f}，等待有效位置，不触发跳伞")
-                    last_log_print_time = now
-                time.sleep(0.1)
-                continue
-            last_user_pos, last_user_pos_time = user_pos, now
-            plane_confirmations += 1
-            if plane_confirmations < 2:
-                time.sleep(0.1)
-                continue
+
+            if user_found:
+                last_seen_time = time.time()
+                if not has_boarded_plane:
+                    if last_user_pos is not None:
+                        move_dist = math.sqrt(
+                            (user_pos[0] - last_user_pos[0]) ** 2 + (user_pos[1] - last_user_pos[1]) ** 2)
+                        time_diff = time.time() - last_user_pos_time
+                        if move_dist > 200.0:
+                            has_boarded_plane = True
+                            jump_timeout_start = time.time()
+                            min_recorded_dist = float('inf')
+                        elif time_diff > 1.5:
+                            speed = move_dist / time_diff
+                            if speed > 15.0:
+                                has_boarded_plane = True
+                                jump_timeout_start = time.time()
+                                min_recorded_dist = float('inf')
+                            else:
+                                last_user_pos = user_pos
+                                last_user_pos_time = time.time()
+                    else:
+                        last_user_pos = user_pos
+                        last_user_pos_time = time.time()
+                else:
+                    if last_user_pos is not None:
+                        move_dist = math.sqrt(
+                            (user_pos[0] - last_user_pos[0]) ** 2 + (user_pos[1] - last_user_pos[1]) ** 2)
+                        time_diff = time.time() - last_user_pos_time
+                        if time_diff < 1.0 and move_dist > 80.0: user_found = False
+                    if user_found:
+                        last_user_pos = user_pos
+                        last_user_pos_time = time.time()
+
+            if has_boarded_plane and jump_timeout_start:
+                time_since_last_seen = time.time() - last_seen_time
+                total_flight_time = time.time() - jump_timeout_start
+                if time_since_last_seen > 5.0 or total_flight_time > 90.0:
+                    return execute_safe_jump(new_window_info, 150.0)
 
             target_x, target_y = None, None
             if self.best_jump_point_coords:
@@ -533,14 +544,14 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 elif dist < min_recorded_dist:
                     min_recorded_dist = dist
 
-                if now - last_log_print_time >= 0.5:
-                    print(f"[距离诊断] 实时:{dist:.1f}px 最近:{min_recorded_dist:.1f}px "
-                          f"阈值:{real_time_trigger + 20:.1f}px "
-                          f"5秒保护剩余:{max(0.0, 5.0 - (now - jump_timeout_start)):.2f}s "
-                          f"飞过计数:{fly_past_counter}")
-                    last_log_print_time = now
+                if has_boarded_plane:
+                    flight_time = time.time() - jump_timeout_start
+                    if int(time.time() * 10) % 10 == 0:
+                        print(
+                            f"   ✈️ 航班监控 -> 当前距标点: {dist:.1f}px | 跳伞红线: {real_time_trigger:.1f}px | 已飞: {flight_time:.1f}秒",
+                            end='\r')
                 if dist <= real_time_trigger+20:
-                    if has_boarded_plane and time.time() - jump_timeout_start > 5.0:
+                    if has_boarded_plane:
                         flight_time = time.time() - jump_timeout_start
                         print("\n" + "=" * 50)
                         print("🚨 [跳伞引擎] 触发跳舱指令！")
@@ -553,11 +564,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if time.time() - jump_timeout_start > 5.0:
                             return execute_safe_jump(new_window_info, dist)
 
-                if has_boarded_plane and time.time() - jump_timeout_start > 5.0 and dist > min_recorded_dist + 50 and min_recorded_dist != float('inf'):
+                if has_boarded_plane and dist > min_recorded_dist + 50 and min_recorded_dist != float('inf'):
                     fly_past_counter += 1
                     if fly_past_counter >= 3:
                         if min_recorded_dist <= 150.0:
-                            print("   [实际跳舱] 已飞过最近点，按 F 跳舱")
                             return execute_safe_jump(new_window_info, min_recorded_dist)
                         else:
                             pydirectinput.press('m');
@@ -575,10 +585,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         return False
 
     def execute_ai_bot_behavior(self, window_info, jump_distance=0.0):
-        air_started_at = time.time()
-        last_air_log = 0.0
-        last_air_distance_valid = None
-        dive_exit_reason = '俯冲达到30秒上限（未确认落地）'
         cw, ch = window_info['game_size']
         center_x = cw / 2
         center_y = ch / 2
@@ -629,11 +635,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             time.sleep(0.5)
             pydirectinput.keyDown('w')
             fly_start = time.time()
-            print(f"[空中阶段] 进入平飞 跳舱距离参数:{jump_distance:.1f}px（大地图） "
-                  f"俯冲门槛:小地图距离<=80px 空中流程已过:{fly_start - air_started_at:.2f}s")
 
             # 👇 2. 实时雷达平飞循环 (取代了原来的固定时间 w_time)
-            dist = None
             while time.time() - fly_start < 60:  # 设个60秒最大超时保护
                 if self.is_paused: time.sleep(0.1); fly_start += 0.1; continue
                 if self.check_interrupt(): return
@@ -654,27 +657,16 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, -10, 0, 0, 0)
 
                 # 👇 3. 核心：读取小地图测距，距离 <= 40px 立刻跳出平飞循环！
-                radar_started_at = time.time()
                 dist = self.get_radar_distance(d_img)
-                radar_finished_at = time.time()
-                if radar_finished_at - last_air_log >= 0.5 or (dist is not None) != last_air_distance_valid:
-                    print(f"[空中测距] 阶段:平飞 已平飞:{radar_finished_at - fly_start:.2f}s "
-                          f"距离:{dist} 有效:{dist is not None} 罗盘黄点X:{tx} "
-                          f"测距耗时:{radar_finished_at - radar_started_at:.3f}s "
-                          f"细节:{getattr(self, 'last_radar_diagnostic', None)}")
-                    last_air_log = radar_finished_at
-                    last_air_distance_valid = dist is not None
                 if dist is not None:
                     if dist <= 80.0:
-                        print(f"\n   🦅 雷达距离 {dist:.1f}px <= 80px，结束平飞，进入俯冲！")
+                        print(f"\n   🦅 雷达距离 {dist:.1f}px <= 40px！到达目标上空，立即执行垂直俯冲！")
                         break  # 打破平飞循环，进入下方的视角向下+俯冲阶段！
                     else:
                         print(f"   ✈️ 空中平飞中... 当前雷达距离: {dist:.1f}px", end='\r')
 
                 time.sleep(0.04)
 
-            print(f"[空中阶段] 平飞循环结束 耗时:{time.time() - fly_start:.2f}s "
-                  f"原因:{'距离进入80px' if dist is not None and dist <= 80.0 else '达到平飞时间上限'}")
             # 把视角拉到最底（衔接后面的 shift+w 俯冲）
             for _ in range(15): self.rotate_mouse_raw(0, 250); time.sleep(0.03)
         pydirectinput.keyDown('shift')
@@ -683,7 +675,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         has_seen_flying_ui = False
         lost_flying_ui_count = 0
-        print("   🪂 进入俯冲阶段，8秒后检测飞行计速器；30秒上限；盘旋门槛<=20px。")
+        print("   🪂 进入俯冲阶段，开启【20秒后精准落地侦测】...")
         while time.time() - dive_start < 30:
             if self.is_paused: time.sleep(0.1); dive_start += 0.1; continue
             if self.check_interrupt():
@@ -721,7 +713,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         print()  # 换行防覆盖
                         print(f"\n   🛬 【飞行计速器瞬间消失】！确认人物已双脚触地！")
                         print(f"   ⏱️ 极速打断俯冲，为您省下 {30.0 - dive_time:.1f} 秒！")
-                        dive_exit_reason = '飞行计速器连续两次消失'
                         break
             # 🎯 核心所在：打破30秒死循环，提前松伞！
 
@@ -733,34 +724,19 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             else:
                 # 🌟 修复俯冲时的抢鼠标拉扯
                 self.rotate_mouse_raw(80, 0)
-            radar_started_at = time.time()
             dist = self.get_radar_distance(d_img)
-            radar_finished_at = time.time()
-            if radar_finished_at - last_air_log >= 0.5 or (dist is not None) != last_air_distance_valid:
-                print(f"[空中测距] 阶段:俯冲 已俯冲:{radar_finished_at - dive_start:.2f}s "
-                      f"距离:{dist} 有效:{dist is not None} D当前按下:{is_d_pressed} 罗盘黄点X:{tx} "
-                      f"测距耗时:{radar_finished_at - radar_started_at:.3f}s "
-                      f"细节:{getattr(self, 'last_radar_diagnostic', None)}")
-                last_air_log = radar_finished_at
-                last_air_distance_valid = dist is not None
             if dist is not None and dist <= 20.0:
                 if not is_d_pressed:
-                    print(f"[盘旋按键] 按下D 已俯冲:{time.time() - dive_start:.2f}s 距离:{dist:.1f}px")
                     pydirectinput.keyDown('d')
                     is_d_pressed = True
                     print(f"   🌪️ 极近距离 ({dist:.1f}px)！切入 W+D 螺旋下坠姿态！")
             else:
                 if is_d_pressed:
-                    print(f"[盘旋按键] 释放D 已俯冲:{time.time() - dive_start:.2f}s "
-                          f"原因:{'测距失败' if dist is None else '距离超过20px'} 距离:{dist}")
                     pydirectinput.keyUp('d')
                     is_d_pressed = False
-        print(f"[空中阶段] 结束俯冲 耗时:{time.time() - dive_start:.2f}s "
-              f"原因:{dive_exit_reason} 结束前D按下:{is_d_pressed}")
         pydirectinput.keyUp('shift')
         pydirectinput.keyUp('w')
         if is_d_pressed:
-            print("[盘旋按键] 释放D 原因:俯冲流程结束")
             pydirectinput.keyUp('d')
         time.sleep(1.5)
         for _ in range(12): self.rotate_mouse_raw(0, -140); time.sleep(0.04)
@@ -786,26 +762,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             f_tmpl = cv2.resize(f_tmpl, None, fx=0.35, fy=0.35)
         print(f"🔎 [开门诊断] F模板已加载:{f_tmpl is not None} 路径:{f_path} "
               f"尺寸:{f_tmpl.shape[:2] if f_tmpl is not None else None}")
-        ground_started_at = time.perf_counter()
-        first_ground_frame = True
-        first_yolo_finished = False
-        first_door_seen = False
-        last_ground_diagnostic = 0.0
-        last_ground_endgame_check = float('-inf')
-        last_turn_diagnostic = 0.0
-        last_diagnostic_state = None
         last_door_diagnostic = 0.0
         # last_door_snapshot = 0.0
         # diagnostic_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
         #                               'debug', 'door_interaction')
-        generic_f_directory = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                           'debug', 'door_interaction', 'generic_f')
-        generic_f_recorder = DoorDiagnosticRecorder(generic_f_directory)
+        # door_recorder = DoorDiagnosticRecorder(diagnostic_dir)
         # print(f"📷 [开门诊断] 接近门时最多每0.25秒采样一次，按时间戳保存至 {diagnostic_dir}")
 
         door_path = os.path.join(self.image_dir, 'door.png')
+        door3_path = os.path.join(self.image_dir, 'door3.png')
         door_tmpl = cv2.imread(door_path) if os.path.exists(door_path) else None
-        open_door_templates = [door_tmpl] if door_tmpl is not None else []
+        door3_tmpl = cv2.imread(door3_path) if os.path.exists(door3_path) else None
+        open_door_templates = [t for t in [door_tmpl, door3_tmpl] if t is not None]
 
         print("🔍 确认小地图状态...")
 
@@ -834,10 +802,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
             # 👇 从这里开始复制：【高频 1 像素平滑拖拽 + 死区锁死引擎】
         def smooth_glide_mouse(diff_x):
-            nonlocal last_turn_diagnostic
-                # 1. 【死区锁死】如果门框中心距离屏幕中心小于 40 像素，视为“已完美对准”！
+                # 1. 【死区锁死】如果门框中心距离屏幕中心小于 20 像素，视为“已完美对准”！
                 # 此时直接 return，切断一切鼠标输入，彻底解决对准后还左右发抖的问题。
-            if abs(diff_x) < 40:
+            if abs(diff_x) < 20:
                     return
 
                 # 2. 【引力吸附算法】不要一次性拉满，每次只拉回偏差的 40%
@@ -851,20 +818,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # 把算出来的位移，切碎成每次只移动 3 像素，利用 for 循环瞬间执行完
                 # 游戏底层会把它识别成一次“极度平滑的鼠标拖拽”！
             step = 3 if move_dist > 0 else -3
-            full_steps, remainder = divmod(abs(move_dist), 3)
-            if time.perf_counter() - last_turn_diagnostic >= 1.0:
-                print(f"[门口转向] 偏差:{diff_x:.1f}px 计算修正:{move_dist} "
-                      f"实际发送总量:{move_dist} 次数:{full_steps + bool(remainder)}")
-                last_turn_diagnostic = time.perf_counter()
-            for _ in range(full_steps):
+            for _ in range(abs(move_dist)):
                 win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, step, 0, 0, 0)
-            if remainder:
-                win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, remainder if step > 0 else -remainder, 0, 0, 0)
         # 👆 复制到这里结束
 
         bot_state = "COMPASS_RUSH"
         entered_target_zone = False
-        compass_turning = False
 
         last_action_log = ""
         self.last_ai_print = time.time()
@@ -880,10 +839,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_aspect_ratio = 0.0
         ratio_check_time = time.time()
         has_aligned_door = False
-        centered_door_count = 0
-        near_door_memory = False
-        memory_forward_steps = 0
-        last_generic_f_at = float('-inf')
 
         last_space_time = 0.0
         verify_count = 0
@@ -914,36 +869,16 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     print("\n\n🛑 接收到强行中断指令！切断引擎！")
                     break
 
-                loop_started_at = time.perf_counter()
-                capture_started_at = time.perf_counter()
                 game_img, current_window_info = self.capture_game_screen()
-                capture_ms = (time.perf_counter() - capture_started_at) * 1000
-                template_started_at = time.perf_counter()
-                yolo_ms = 0.0
-                frame_captured_at = time.time()
+                # frame_captured_at = time.time()  # 截图诊断暂时停用
                 if game_img is None: time.sleep(0.05); continue
-                if first_ground_frame:
-                    print(f"[地面启动] 首张有效截图:{capture_ms:.1f}ms "
-                          f"距启动:{time.perf_counter() - ground_started_at:.3f}s")
-                    first_ground_frame = False
 
-                f_started_at = time.perf_counter()
                 current_f_score = 0.0
                 if f_tmpl is not None:
                     res_f = cv2.matchTemplate(game_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
                     current_f_score = cv2.minMaxLoc(res_f)[1]
 
-                f_ms = (time.perf_counter() - f_started_at) * 1000
-                endgame_ms = 0.0
-                endgame_found = False
-                endgame_checked = False
-                if time.perf_counter() - last_ground_endgame_check >= 2.0:
-                    endgame_started_at = time.perf_counter()
-                    last_ground_endgame_check = endgame_started_at
-                    endgame_checked = True
-                    endgame_found = self.handle_endgame(game_img, current_window_info)
-                    endgame_ms = (time.perf_counter() - endgame_started_at) * 1000
-                if endgame_found:
+                if self.handle_endgame(game_img, current_window_info):
                     self.has_marked_this_match = False
                     stop_all()
                     break
@@ -951,10 +886,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 h, w = game_img.shape[:2]
                 center_x = w / 2
 
-                radar_started_at = time.perf_counter()
                 dist = self.get_radar_distance(game_img)
-                radar_ms = (time.perf_counter() - radar_started_at) * 1000
-                push_ms = 0.0
 
                 # ==========================================
                 # 🌟 电子围栏与动态偏航纠正 
@@ -1000,45 +932,40 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # 全局智能 F 交互拦截器
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
-                    push_started_at = time.perf_counter()
-                    door_prompt_score = 0.0
-                    for tmpl in open_door_templates:
-                        res_d = cv2.matchTemplate(game_img, tmpl, cv2.TM_CCOEFF_NORMED)
-                        door_prompt_score = max(door_prompt_score, cv2.minMaxLoc(res_d)[1])
-                    push_ms = (time.perf_counter() - push_started_at) * 1000
-                    found_door_prompt = door_prompt_score > 0.7
-                    # 门提示优先，未对齐时禁止落入普通物资交互分支。
-                    door_ready = (found_door_prompt and bot_state == "APPROACH_DOOR"
-                                  and has_aligned_door)
-                    item_ready = (not found_door_prompt and current_f_score > 0.72
-                                  and time.time() - last_generic_f_at >= 5.0)
-                    if bot_state == "APPROACH_DOOR" and time.time() - last_door_diagnostic >= 2.0:
-                        print(f"\n🔎 [开门诊断] 推门得分:{door_prompt_score:.4f} 阈值:>0.70 "
-                              f"F得分:{current_f_score:.4f} "
-                              f"门已对齐:{has_aligned_door} 允许开门:{door_ready} "
-                              f"原因:{'允许开门' if door_ready else '无推门提示' if not found_door_prompt else '门尚未对齐或不在接近门状态'}")
-                        last_door_diagnostic = time.time()
-                    if door_ready or item_ready:
+                    ignore_f = False
+                    # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
+                    # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
+                    if bot_state == 'APPROACH_DOOR':
+                        reason = ('未加载F模板' if f_tmpl is None else
+                                  '对齐条件拦截' if ignore_f else
+                                  'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
+                        if time.time() - last_door_diagnostic >= 2.0:
+                            print(f"\n🔎 [开门诊断] F得分:{current_f_score:.4f} 阈值:>0.72 "
+                                  f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
+                            last_door_diagnostic = time.time()
+                        # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
+                        # if frame_captured_at - last_door_snapshot >= 0.25:
+                        #     metadata = dict(state=bot_state, f_score=float(current_f_score),
+                        #                     f_threshold=0.72, template_loaded=f_tmpl is not None,
+                        #                     has_aligned_door=bool(has_aligned_door),
+                        #                     ignore_f=bool(ignore_f), reason=reason,
+                        #                     marker_distance=dist, captured_at=frame_captured_at)
+                        #     if door_recorder.submit(game_img, metadata):
+                        #         last_door_snapshot = frame_captured_at
+                    if current_f_score > 0.72 and not ignore_f:
+                        print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 立即停步并交互！")
                         stop_all()
-                        interaction_is_door = door_ready
-                        interaction_origin_state = bot_state
                         bot_state = "VERIFY_DOOR"
+                        verify_count = 1
                         global_progress_time = time.time()
-                        # 当前帧直接交互，开门不依赖 F 图标得分。
+                        # 直接用当前帧核验并按 F，不等待下一帧，避免错过路边物资。
                 # ==========================================
                 # YOLO 视觉逻辑
                 # ==========================================
-                template_ms = (time.perf_counter() - template_started_at) * 1000
                 toilet_box, valid_door_box = None, None
 
                 if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
-                    yolo_started_at = time.perf_counter()
                     results = self.yolo_model.predict(source=game_img, conf=0.5, classes=[0, 1], verbose=False,half=True, imgsz=640,)
-                    yolo_ms = (time.perf_counter() - yolo_started_at) * 1000
-                    if not first_yolo_finished:
-                        print(f"[地面启动] 首次YOLO耗时:{yolo_ms:.1f}ms "
-                              f"地面启动至此:{time.perf_counter() - ground_started_at:.3f}s")
-                        first_yolo_finished = True
                     toilet_boxes, door_boxes = [], []
 
                     for r in results:
@@ -1069,41 +996,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
-                diagnostic_now = time.perf_counter()
-                if valid_door_box and not first_door_seen:
-                    print(f"[地面启动] 首次有效门框 距启动:{diagnostic_now - ground_started_at:.3f}s")
-                    first_door_seen = True
-                if diagnostic_now - last_ground_diagnostic >= 1.0 or bot_state != last_diagnostic_state:
-                    active_keys = '+'.join(k for k, pressed in keys_pressed.items() if pressed) or '无'
-                    print(f"[地面耗时] 状态:{bot_state} 动作:{last_action_log} 按键:{active_keys} "
-                          f"距标点:{dist} 截图:{capture_ms:.1f}ms "
-                          f"模板及导航:{template_ms:.1f}ms YOLO:{yolo_ms:.1f}ms "
-                          f"本轮至决策:{(diagnostic_now - loop_started_at) * 1000:.1f}ms")
-                    print(f"[检测分项] F匹配:{f_ms:.1f}ms 结束界面:{endgame_ms:.1f}ms(本轮执行:{endgame_checked}) "
-                          f"小地图测距:{radar_ms:.1f}ms 推门匹配:{push_ms:.1f}ms")
-                    if valid_door_box:
-                        print(f"[门框诊断] 中心:({valid_door_box['x']:.1f},{valid_door_box['y']:.1f}) "
-                              f"宽高:({valid_door_box['w']:.1f},{valid_door_box['h']:.1f}) "
-                              f"偏差:{valid_door_box['x'] - center_x:.1f}px "
-                              f"宽高比:{valid_door_box['w'] / valid_door_box['h']:.3f} "
-                              f"已对齐:{has_aligned_door}")
-                    last_ground_diagnostic = diagnostic_now
-                    last_diagnostic_state = bot_state
                 if valid_door_box: global_last_door_time = time.time()
-                if bot_state != "APPROACH_DOOR":
-                    centered_door_count = 0
-                    near_door_memory = False
-                    memory_forward_steps = 0
-                elif valid_door_box:
-                    memory_forward_steps = 0
-                    if abs(valid_door_box['x'] - center_x) <= 80 and valid_door_box['h'] >= h * 0.20:
-                        centered_door_count += 1
-                    else:
-                        centered_door_count = 0
-                    near_door_memory = centered_door_count >= 3
-
-                if bot_state != "COMPASS_RUSH":
-                    compass_turning = False
 
                 if target_focus:
                     global_last_seen_time = time.time()
@@ -1154,16 +1047,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if dist is not None and dist <= 25.0 and abs_diff <= 40:
                             turn_multiplier = min(turn_multiplier, 1)
 
-                        if (entered_target_zone or compass_turning) and abs_diff > 60:
-                            stop_all()
-                            if not compass_turning:
-                                print(f"[罗盘转向] 开始 偏差:{diff_x:.1f}px，先停步转向，等待新画面确认")
-                            compass_turning = True
-                            self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
-                            continue  # 下一轮新截图确认前，不前进、不跳跃、不随机侧移。
-                        if compass_turning:
-                            print(f"[罗盘转向] 完成 新画面偏差:{diff_x:.1f}px，恢复前进")
-                            compass_turning = False
                         if abs_diff > 3:
                             self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
 
@@ -1172,8 +1055,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 print("   🚶 进圈解除疾跑，静步索敌...")
                                 set_key('shift', False)
                                 is_sprinting = False
-                            if not keys_pressed['w']:
-                                set_key('w', True)
+                            if abs(diff_x) > 60:
+                                if keys_pressed['w']:
+                                    print("   🛑 目标在侧后方，停步转身...")
+                                    set_key('w', False)
+                            else:
+                                if not keys_pressed['w']:
+                                    set_key('w', True)
                             curr_t = time.time()
                             last_scrape = getattr(self, 'last_scrape_time', 0)
                             if curr_t - last_scrape > 3.0: 
@@ -1218,10 +1106,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     else:
                         time_since_last_seen = time.time() - last_valid_tx_time
 
-                        if compass_turning:
-                            stop_all()
-                            self.rotate_mouse_raw(30 if entered_target_zone else 120, 0)
-                            continue
                         if time_since_last_seen < 1.0:
                             if entered_target_zone:
                                 set_key('shift', False)
@@ -1278,15 +1162,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             stop_all()
                             continue
                     diff_x = toilet_box['x'] - center_x
-                    if not valid_door_box and toilet_box['h'] >= h * 0.40 and abs(diff_x) <= 100.0:
-                        print("\n🔎 厕所已到观察距离但未发现门，停止直行，开始绕行找门...")
-                        stop_all()
-                        bot_state = "CIRCLING"
-                        circle_start = time.time()
-                        last_circle_pause_time = time.time()
-                        last_action_log = ""
-                        global_progress_time = time.time()
-                        continue
                     if abs(diff_x) > 100.0:
                         if last_action_log != "VISUAL_ADJUST":
                             print(f"\n🛑 厕所偏离(偏差:{diff_x:.1f})！刹车纯视觉对正！")
@@ -1294,6 +1169,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             last_action_log = "VISUAL_ADJUST"
                         self.rotate_mouse_raw(int(diff_x * 0.6), 0)
                     else:
+                        toilet_ratio = toilet_box['h'] / h
+
                         if valid_door_box:
                             set_key('shift', False)
                             set_key('ctrl', True)
@@ -1301,11 +1178,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             if last_action_log != "FORCE_BRAKE":
                                 print("   🚨 发现门框反光！紧急降速至静步...")
                                 last_action_log = "FORCE_BRAKE"
-                        else:
+
+                        elif toilet_ratio < 0.25:
                             if is_sprinting or keys_pressed['ctrl']:
                                 set_key('shift', False)
                                 set_key('ctrl', False)
-                                set_key('w', False)
+                                set_key('w', False)  
                                 time.sleep(0.02)
                                 set_key('w', True)
                                 is_sprinting = False
@@ -1313,10 +1191,40 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 set_key('shift', False)
                                 set_key('ctrl', False)
                                 set_key('w', True)
-                            if last_action_log != "TOILET_WALK":
-                                print("   🚶 未发现门，纯按 W 接近厕所，到观察距离后绕行...")
-                                last_action_log = "TOILET_WALK"
 
+                            if last_action_log != "GEAR_3":
+                                print("   🏃 目标尚远(三档)，解除疾跑，纯按 W 稳步前压...")
+                                last_action_log = "GEAR_3"
+                        elif toilet_ratio < 0.45:
+                            if is_sprinting or not keys_pressed['ctrl']:
+                                set_key('shift', False)
+                                set_key('w', False)  
+                                time.sleep(0.02)
+                                set_key('ctrl', True)
+                                set_key('w', True)
+                                is_sprinting = False
+                            else:
+                                set_key('ctrl', True)
+                                set_key('w', True)
+
+                            if last_action_log != "GEAR_2":
+                                print("   🚶 接近雷区(二档)，切入 Ctrl+W 静步索敌...")
+                                last_action_log = "GEAR_2"
+                        else:
+                            if is_sprinting or not keys_pressed['ctrl']:
+                                set_key('shift', False)
+                                set_key('w', False) 
+                                time.sleep(0.02)
+                                set_key('ctrl', True)
+                                set_key('w', True)
+                                is_sprinting = False
+                            else:
+                                set_key('ctrl', True)
+                                set_key('w', True)
+                            if last_action_log != "GEAR_1":
+                                print("   🛑 贴脸缓冲(一档)！防撞死漏门模式...")
+                                last_action_log = "GEAR_1"
+                        
                         self.rotate_mouse_raw(int(diff_x * 1.0), 0)
                         global_progress_time = time.time()
 
@@ -1446,21 +1354,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if not valid_door_box:
                         time_since_lost = time.time() - global_last_door_time
 
-                        if near_door_memory and memory_forward_steps < 4:
-                            stop_all()
-                            set_key('ctrl', True)
-                            step_started_at = time.perf_counter()
-                            set_key('w', True)
-                            try:
-                                time.sleep(max(0.0, 0.5 - (time.perf_counter() - step_started_at)))
-                            finally:
-                                stop_all()
-                            memory_forward_steps += 1
-                            print(f"[近门记忆] 慢进第{memory_forward_steps}/4段（0.5秒），已停步，重新截图检查F")
-                            global_progress_time = time.time()
-                            last_action_log = "MEMORY_APPROACH"
-                            continue  # 停稳后从主循环获取新画面，不能沿用前进前的截图。
-                        elif time_since_lost < 1:
+                        if time_since_lost < 1:
                             if last_action_log != "BLIND_RUSH":
                                 print("\n⚠️ 贴脸大门视野闪断！保持 Ctrl+W 惯坚盲进！")
                                 last_action_log = "BLIND_RUSH"
@@ -1616,35 +1510,48 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             smooth_glide_mouse(diff_door)
                 elif bot_state == "VERIFY_DOOR":
                     global_progress_time = time.time()
-                    if interaction_is_door:
-                        print(f"   🎯 匹配【推门】且门已对齐！(推门:{door_prompt_score:.2f}) 按 F 开门，准备突入！")
+                    c_img = game_img
+                    found_f = False
+                    found_door = False
+                    score_f = 0.0
+                    if f_tmpl is not None:
+                        res_f = cv2.matchTemplate(c_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
+                        score_f = cv2.minMaxLoc(res_f)[1]
+                        if score_f > 0.72: found_f = True
+                    for tmpl in open_door_templates:
+                        res_d = cv2.matchTemplate(c_img, tmpl, cv2.TM_CCOEFF_NORMED)
+                        if cv2.minMaxLoc(res_d)[1] > 0.7:
+                            found_door = True
+                            break
+                    if found_f:
+                        if verify_count >= 1:
+                            if found_door:
+                                print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
+                                win32api.keybd_event(0x46, 0, 0, 0)
+                                time.sleep(0.05)
+                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
+                                time.sleep(0.4)
+                                bot_state = "ITEM_PICKUP"
+                            else:
+                                print(f"   📦 核验为【物资】！(F:{score_f:.2f}, 无门) 直接按 F 拾取！")
+                                win32api.keybd_event(0x46, 0, 0, 0)
+                                time.sleep(0.05)
+                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
+                                time.sleep(0.2)  
+                                bot_state = "COMPASS_RUSH"
                     else:
-                        print(f"   📦 普通 F 提示！(F:{current_f_score:.2f}) 按 F 交互，不执行进屋！")
-                        queued = generic_f_recorder.submit(game_img, dict(
-                            event='generic_f', captured_at=frame_captured_at,
-                            state=interaction_origin_state, f_score=float(current_f_score),
-                            f_threshold=0.72, door_score=float(door_prompt_score),
-                            door_threshold=0.70, has_aligned_door=bool(has_aligned_door),
-                            marker_distance=dist))
-                        if not queued:
-                            print('[普通F截图] 后台保存繁忙，本次未保存')
-                    print(f"[交互时序] 发送F 类型:{'开门' if interaction_is_door else '普通交互'} "
-                          f"地面启动后:{time.perf_counter() - ground_started_at:.3f}s "
-                          f"本轮截图开始至按键:{time.perf_counter() - loop_started_at:.3f}s")
-                    if not interaction_is_door:
-                        last_generic_f_at = time.time()
-                    win32api.keybd_event(0x46, 0, 0, 0)
-                    time.sleep(0.05)
-                    win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
-                    time.sleep(0.4 if interaction_is_door else 0.2)
-                    bot_state = "ITEM_PICKUP" if interaction_is_door else "COMPASS_RUSH"
+                        print(f"   ⚠️ F 提示闪断或误报 (F置信度:{score_f:.2f})，退回罗盘奔袭...")
+                        pydirectinput.press('s')
+                        pydirectinput.press('s')
+                        stop_all()
+                        bot_state = "COMPASS_RUSH"
 
                 elif bot_state == "ITEM_PICKUP":
                     global_progress_time = time.time()
                     print("\n   🏃 门已开，直冲突入！...")
                     set_key('w', True)
                     rush_start = time.time()
-                    while time.time() - rush_start < 1.5:
+                    while time.time() - rush_start < 2.0:
                         if self.is_paused:
                             set_key('w', False)
                             time.sleep(0.1)
@@ -1741,7 +1648,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             print(f"\n❌ 地面执行发生严重错误:\n{traceback.format_exc()}")
         finally:
             stop_all()
-            generic_f_recorder.close()
+            # door_recorder.close()  # 截图诊断暂时停用
             print("\n🏁 自动地面突击序列彻底结束，所有按键已释放。")
 
     # ----------------------------------------------------------------------
