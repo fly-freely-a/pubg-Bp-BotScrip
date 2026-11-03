@@ -1644,7 +1644,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     print("\n   🏃 门已开，直冲突入！...")
                     set_key('w', True)
                     rush_start = time.time()
-                    while time.time() - rush_start < 2.0:
+                    while time.time() - rush_start < 1.5:
                         if self.is_paused:
                             set_key('w', False)
                             time.sleep(0.1)
