@@ -246,13 +246,26 @@ class VisionMixin:
         except Exception:
             return False, 0.0, None
 
-    def find_user_on_map(self, map_img):
+    def find_plane_seats(self, screen):
+        if not hasattr(self, 'plane_seats_template'):
+            self.plane_seats_template = self._load_img('plane_seats.png')
+        template = self.plane_seats_template
+        if screen is None or template is None:
+            return False, 0.0
+        # 在左下角匹配固定机头轮廓，模板不包含座位方格和人数。
+        roi = screen[780:990, 30:190]
+        result = cv2.matchTemplate(roi, template, cv2.TM_CCOEFF_NORMED)
+        score = float(cv2.minMaxLoc(result)[1])
+        return score >= 0.85, score
+
+    def find_user_on_map(self, map_img, exclude_position=None):
         if map_img is None: return False, None, 0.0, None
 
         # 1. 尝试常规识图 (快速匹配)
         found, conf, pos = self.find_image_in_map(map_img, 'user', 0.6)
         if found: return True, pos, conf, 'template'
 
+        excluded_target = False
         # 2. 🌟 既然识图不稳，直接提取你图片中的“黄色圆圈”或“中心白点”
         try:
             hsv = cv2.cvtColor(map_img, cv2.COLOR_BGR2HSV)
@@ -272,11 +285,16 @@ class VisionMixin:
                     # 比例校验：User图标接近正方形
                     if 0.8 < (w / h) < 1.2:
                         cx, cy = x + w // 2, y + h // 2
+                        # 仅跳舱追踪传入排除坐标，过滤标点圆环及其尖端的偏移。
+                        if exclude_position is not None and math.hypot(
+                                cx - exclude_position[0], cy - exclude_position[1]) <= 25.0:
+                            excluded_target = True
+                            continue  # 继续寻找其他黄色候选，不因标点挡住真实飞机。
                         return True, (cx, cy), 0.9, 'color_logic'
         except Exception:
             pass
 
-        return False, None, 0.0, None
+        return False, None, 0.0, 'excluded_target' if excluded_target else None
 
     def extract_flight_path_v2(self, map_img):
         if map_img is None or len(map_img) == 0: return []
