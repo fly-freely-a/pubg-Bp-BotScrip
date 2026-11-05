@@ -21,7 +21,7 @@ class RadarFiniteScoreTests(unittest.TestCase):
             matchTemplate=Mock(side_effect=[r.copy() for r in results]),
             minMaxLoc=cv2.minMaxLoc, TM_CCOEFF_NORMED=cv2.TM_CCOEFF_NORMED))
         exec(compile(ast.Module(body=[method], type_ignores=[]), '<radar>', 'exec'), namespace)
-        distance = namespace['get_radar_distance'](controller, np.zeros((200, 200, 3), np.uint8))
+        distance = namespace['get_radar_distance'](controller, np.zeros((200, 200, 3), np.uint8), reject_nonfinite=True)
         return distance, controller.last_radar_diagnostic
 
     def test_inf_does_not_hide_valid_match_in_same_result(self):
