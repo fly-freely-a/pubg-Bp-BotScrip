@@ -1593,7 +1593,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     time.sleep(1.0)
 
                     set_key('a', True)
-                    time.sleep(0.8)
+                    time.sleep(2.0)
                     set_key('a', False)
                     pydirectinput.press('c')
                     set_key('s', True)
