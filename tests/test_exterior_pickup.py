@@ -44,10 +44,15 @@ class ExteriorPickupTests(unittest.TestCase):
                          set_key=lambda key,state:events.append((key,state)),
                          pydirectinput=SimpleNamespace(press=lambda key:events.append(('press',key))),
                          self=SimpleNamespace(pickup_all_items_in_tab=lambda window:events.append(('pickup',window))),
-                         current_window_info=info, print=Mock())
+                         current_window_info=info, print=Mock(), dist_history=[20, 25],
+                         has_aligned_door=True, is_skew_locked=True, last_aspect_ratio=.6)
         exec(compile(ast.Module(body=self.body('EXTERIOR_PICKUP'), type_ignores=[]), '<pickup>', 'exec'), namespace)
         self.assertEqual(events, [('stop',), ('a', True), ('wait', .8), ('a', False),
                                   ('s', True), ('wait', .7), ('s', False),
                                   ('press','tab'), ('wait',1.), ('pickup',info),
                                   ('press','tab'), ('wait',.5)])
-        self.assertEqual(namespace['bot_state'], 'AFK')
+        self.assertEqual(namespace['bot_state'], 'COMPASS_RUSH')
+        self.assertFalse(namespace['has_aligned_door'])
+        self.assertFalse(namespace['is_skew_locked'])
+        self.assertEqual(namespace['last_aspect_ratio'], 0.0)
+        self.assertEqual(namespace['dist_history'], [])

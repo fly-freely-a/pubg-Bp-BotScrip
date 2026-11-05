@@ -1647,8 +1647,14 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         self.pickup_all_items_in_tab(current_window_info)
                     pydirectinput.press('tab')
                     time.sleep(0.5)
-                    last_afk_move_time = time.time()
-                    bot_state = "AFK"
+                    has_aligned_door = False
+                    is_skew_locked = False
+                    last_aspect_ratio = 0.0
+                    last_action_log = ""
+                    dist_history.clear()
+                    global_progress_time = time.time()
+                    bot_state = "COMPASS_RUSH"
+                    print("   🔄 外围拾取结束，恢复正常找门、对齐和进屋流程。")
 
                 elif bot_state == "AFK":
                     global_progress_time = time.time()
