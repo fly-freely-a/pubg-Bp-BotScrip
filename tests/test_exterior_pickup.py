@@ -11,10 +11,10 @@ class ExteriorPickupTests(unittest.TestCase):
         return next(n.body for n in ast.walk(tree) if isinstance(n, ast.If)
                     and ast.unparse(n.test) == f"bot_state == '{state}'")
 
-    def verify(self, close_score, open_score=.95):
+    def verify(self, open_score=.95):
         inputs = Mock()
         namespace = dict(time=SimpleNamespace(time=lambda: 100, sleep=Mock()), game_img=object(),
-                         f_tmpl=.99, open_door_templates=[open_score], close_door_tmpl=close_score,
+                         f_tmpl=.99, open_door_templates=[open_score],
                          cv2=SimpleNamespace(matchTemplate=lambda image, template, mode: template,
                                              minMaxLoc=lambda score: (0, score, None, None), TM_CCOEFF_NORMED=1),
                          win32api=SimpleNamespace(keybd_event=inputs),
@@ -23,18 +23,19 @@ class ExteriorPickupTests(unittest.TestCase):
         exec(compile(ast.Module(body=self.body('VERIFY_DOOR'), type_ignores=[]), '<verify>', 'exec'), namespace)
         return namespace, inputs
 
-    def test_close_prompt_wins_over_shared_door_character_and_sends_f(self):
-        namespace, inputs = self.verify(.95)
+    def test_generic_f_without_push_prompt_sends_f_and_loots_exterior(self):
+        namespace, inputs = self.verify(.3)
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
         self.assertEqual([call.args for call in inputs.call_args_list], [(0x46, 0, 0, 0), (0x46, 0, 2, 0)])
 
     def test_normal_door_keeps_existing_entry(self):
-        namespace, _ = self.verify(.3)
+        namespace, _ = self.verify(.95)
         self.assertEqual(namespace['bot_state'], 'ITEM_PICKUP')
 
-    def test_normal_item_keeps_existing_compass_return(self):
-        namespace, _ = self.verify(.3, open_score=.3)
-        self.assertEqual(namespace['bot_state'], 'COMPASS_RUSH')
+    def test_generic_pickup_does_not_require_close_door_template(self):
+        source = (Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text()
+        self.assertNotIn('door2.png', source)
+        self.assertNotIn('door3.png', source)
 
     def test_exterior_sequence_moves_left_back_and_loots_without_forward(self):
         events = []

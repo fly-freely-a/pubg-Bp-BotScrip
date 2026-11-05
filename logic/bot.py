@@ -795,12 +795,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # print(f"📷 [开门诊断] 接近门时最多每0.25秒采样一次，按时间戳保存至 {diagnostic_dir}")
 
         door_path = os.path.join(self.image_dir, 'door.png')
-        close_door_path = os.path.join(self.image_dir, 'door2.png')
-        close_door_tmpl = cv2.imread(close_door_path) if os.path.exists(close_door_path) else None
-        door3_path = os.path.join(self.image_dir, 'door3.png')
         door_tmpl = cv2.imread(door_path) if os.path.exists(door_path) else None
-        door3_tmpl = cv2.imread(door3_path) if os.path.exists(door3_path) else None
-        open_door_templates = [t for t in [door_tmpl, door3_tmpl] if t is not None]
+        open_door_templates = [door_tmpl] if door_tmpl is not None else []
 
         print("🔍 确认小地图状态...")
 
@@ -1550,20 +1546,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if cv2.minMaxLoc(res_d)[1] > 0.7:
                             found_door = True
                             break
-                    found_close_door = False
-                    if close_door_tmpl is not None:
-                        res_close = cv2.matchTemplate(c_img, close_door_tmpl, cv2.TM_CCOEFF_NORMED)
-                        found_close_door = cv2.minMaxLoc(res_close)[1] > 0.7
                     if found_f:
                         if verify_count >= 1:
-                            if found_close_door:
-                                print("   🚪 识别【关闭门】，按 F 关门，转向外围刷物点拾取！")
-                                win32api.keybd_event(0x46, 0, 0, 0)
-                                time.sleep(0.05)
-                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
-                                time.sleep(0.4)
-                                bot_state = "EXTERIOR_PICKUP"
-                            elif found_door:
+                            if found_door:
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
                                 time.sleep(0.05)
@@ -1571,12 +1556,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 time.sleep(0.4)
                                 bot_state = "ITEM_PICKUP"
                             else:
-                                print(f"   📦 核验为【物资】！(F:{score_f:.2f}, 无门) 直接按 F 拾取！")
+                                print(f"   📦 普通 F 交互！(F:{score_f:.2f}, 未匹配推门) 按 F 后执行外围拾取！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
                                 time.sleep(0.05)
                                 win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
                                 time.sleep(0.2)  
-                                bot_state = "COMPASS_RUSH"
+                                bot_state = "EXTERIOR_PICKUP"
                     else:
                         print(f"   ⚠️ F 提示闪断或误报 (F置信度:{score_f:.2f})，退回罗盘奔袭...")
                         pydirectinput.press('s')
