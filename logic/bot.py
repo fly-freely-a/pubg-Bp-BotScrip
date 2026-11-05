@@ -1002,25 +1002,21 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                     ignore_f = False
-                    push_score = -1.0
-                    door_log_due = (bot_state == 'APPROACH_DOOR'
-                                    and time.time() - last_door_diagnostic >= 2.0)
-                    if (current_f_score > 0.72 and not has_aligned_door) or door_log_due:
-                        # 只在原拦截检查或两秒诊断时计算，不额外每帧匹配。
+                    if current_f_score > 0.72 and not has_aligned_door:
+                        # 推门未对齐时继续下面的调整流程，不能被反复F核验截断。
                         for tmpl in open_door_templates:
                             push_result = cv2.matchTemplate(game_img, tmpl, cv2.TM_CCOEFF_NORMED)
-                            push_score = max(push_score, cv2.minMaxLoc(push_result)[1])
-                        ignore_f = (current_f_score > 0.72 and not has_aligned_door
-                                    and push_score > 0.7)
+                            if cv2.minMaxLoc(push_result)[1] > 0.7:
+                                ignore_f = True
+                                break
                     # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
                     # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
                     if bot_state == 'APPROACH_DOOR':
                         reason = ('未加载F模板' if f_tmpl is None else
                                   '对齐条件拦截' if ignore_f else
                                   'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
-                        if door_log_due:
+                        if time.time() - last_door_diagnostic >= 2.0:
                             print(f"\n🔎 [开门诊断] F得分:{current_f_score:.4f} 阈值:>0.72 "
-                                  f"推门得分:{push_score:.4f} 阈值:>0.70 "
                                   f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
                             last_door_diagnostic = time.time()
                         # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
@@ -1560,10 +1556,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     score_d = -1.0
                     for tmpl in open_door_templates:
                         res_d = cv2.matchTemplate(c_img, tmpl, cv2.TM_CCOEFF_NORMED)
-                        score_d = max(score_d, cv2.minMaxLoc(res_d)[1])
-                    found_door = score_d > 0.7
-                    print(f"[交互诊断] F得分:{score_f:.4f}/0.72 推门得分:{score_d:.4f}/0.70 "
-                          f"门已对齐:{has_aligned_door} 推门模板已加载:{bool(open_door_templates)}")
+                        score_d = cv2.minMaxLoc(res_d)[1]
+                        if score_d > 0.7:
+                            found_door = True
+                            break
                     if found_f:
                         if verify_count >= 1:
                             if found_door and not has_aligned_door:
@@ -1578,7 +1574,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 time.sleep(0.4)
                                 bot_state = "ITEM_PICKUP"
                             else:
-                                print(f"   📦 普通 F 交互！(F:{score_f:.2f}, 未匹配推门) 按 F 后执行外围拾取！")
+                                print(f"   📦 普通 F 交互！(F:{score_f:.2f}, 推门得分:{score_d:.4f}, 推门阈值:>0.70) 按 F 后执行外围拾取！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
                                 time.sleep(0.05)
                                 win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
