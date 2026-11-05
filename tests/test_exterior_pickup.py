@@ -11,7 +11,7 @@ class ExteriorPickupTests(unittest.TestCase):
         return next(n.body for n in ast.walk(tree) if isinstance(n, ast.If)
                     and ast.unparse(n.test) == f"bot_state == '{state}'")
 
-    def verify(self, open_score=.95):
+    def verify(self, open_score=.95, aligned=True):
         inputs = Mock()
         namespace = dict(time=SimpleNamespace(time=lambda: 100, sleep=Mock()), game_img=object(),
                          f_tmpl=.99, open_door_templates=[open_score],
@@ -19,7 +19,7 @@ class ExteriorPickupTests(unittest.TestCase):
                                              minMaxLoc=lambda score: (0, score, None, None), TM_CCOEFF_NORMED=1),
                          win32api=SimpleNamespace(keybd_event=inputs),
                          win32con=SimpleNamespace(KEYEVENTF_KEYUP=2), verify_count=1,
-                         bot_state='VERIFY_DOOR', print=Mock())
+                         bot_state='VERIFY_DOOR', print=Mock(), has_aligned_door=aligned, stop_all=Mock())
         exec(compile(ast.Module(body=self.body('VERIFY_DOOR'), type_ignores=[]), '<verify>', 'exec'), namespace)
         return namespace, inputs
 
@@ -57,3 +57,13 @@ class ExteriorPickupTests(unittest.TestCase):
         self.assertFalse(namespace['is_skew_locked'])
         self.assertEqual(namespace['last_aspect_ratio'], 0.0)
         self.assertEqual(namespace['dist_history'], [])
+
+    def test_push_prompt_does_not_enter_or_press_f_when_unaligned(self):
+        namespace, inputs = self.verify(.95, aligned=False)
+        self.assertEqual(namespace['bot_state'], 'APPROACH_DOOR')
+        inputs.assert_not_called()
+
+    def test_generic_pickup_is_allowed_when_unaligned(self):
+        namespace, inputs = self.verify(.3, aligned=False)
+        self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
+        self.assertEqual(inputs.call_count, 2)
