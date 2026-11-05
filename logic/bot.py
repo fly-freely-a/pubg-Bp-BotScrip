@@ -795,6 +795,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         # print(f"📷 [开门诊断] 接近门时最多每0.25秒采样一次，按时间戳保存至 {diagnostic_dir}")
 
         door_path = os.path.join(self.image_dir, 'door.png')
+        close_door_path = os.path.join(self.image_dir, 'door2.png')
+        close_door_tmpl = cv2.imread(close_door_path) if os.path.exists(close_door_path) else None
         door3_path = os.path.join(self.image_dir, 'door3.png')
         door_tmpl = cv2.imread(door_path) if os.path.exists(door_path) else None
         door3_tmpl = cv2.imread(door3_path) if os.path.exists(door3_path) else None
@@ -943,7 +945,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             print("\n📍 已抵达目标 30px 核心区！正式激活【YOLO视觉】逻辑！")
                             entered_target_zone = True
                     elif dist > 30.0:
-                        if entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
+                        if entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                             print(f"\n🚨 [电子围栏报警] 偏离标点过远 ({dist:.1f}px > 30px)！判定为追错目标或迷失！")
                             print("🚨 强行关闭 YOLO 视觉，退回罗盘导航重新拉回目标点...")
                             entered_target_zone = False
@@ -956,7 +958,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
                 # 全局智能 F 交互拦截器
                 # ==========================================
-                if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
+                if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                     ignore_f = False
                     # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
                     # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
@@ -989,7 +991,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
                 toilet_box, valid_door_box = None, None
 
-                if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "AFK"]:
+                if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                     results = self.yolo_model.predict(source=game_img, conf=0.5, classes=[0, 1], verbose=False,half=True, imgsz=640,)
                     toilet_boxes, door_boxes = [], []
 
@@ -1548,9 +1550,20 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if cv2.minMaxLoc(res_d)[1] > 0.7:
                             found_door = True
                             break
+                    found_close_door = False
+                    if close_door_tmpl is not None:
+                        res_close = cv2.matchTemplate(c_img, close_door_tmpl, cv2.TM_CCOEFF_NORMED)
+                        found_close_door = cv2.minMaxLoc(res_close)[1] > 0.7
                     if found_f:
                         if verify_count >= 1:
-                            if found_door:
+                            if found_close_door:
+                                print("   🚪 识别【关闭门】，按 F 关门，转向外围刷物点拾取！")
+                                win32api.keybd_event(0x46, 0, 0, 0)
+                                time.sleep(0.05)
+                                win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
+                                time.sleep(0.4)
+                                bot_state = "EXTERIOR_PICKUP"
+                            elif found_door:
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 门:{found_door}) 按 F 交互，准备突入！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
                                 time.sleep(0.05)
@@ -1615,6 +1628,25 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     pydirectinput.press('tab')
                     time.sleep(0.5)
 
+                    last_afk_move_time = time.time()
+                    bot_state = "AFK"
+
+                elif bot_state == "EXTERIOR_PICKUP":
+                    global_progress_time = time.time()
+                    stop_all()
+                    print("   📦 外围拾取：左移0.8秒、后退0.7秒，再打开背包拾取...")
+                    set_key('a', True)
+                    time.sleep(0.8)
+                    set_key('a', False)
+                    set_key('s', True)
+                    time.sleep(0.7)
+                    set_key('s', False)
+                    pydirectinput.press('tab')
+                    time.sleep(1.0)
+                    if hasattr(self, 'pickup_all_items_in_tab'):
+                        self.pickup_all_items_in_tab(current_window_info)
+                    pydirectinput.press('tab')
+                    time.sleep(0.5)
                     last_afk_move_time = time.time()
                     bot_state = "AFK"
 
