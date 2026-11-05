@@ -880,6 +880,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_aspect_ratio = 0.0
         ratio_check_time = time.time()
         has_aligned_door = False
+        last_door_centered = False
         centered_door_count = 0
         near_door_memory = False
         memory_forward_steps = 0
@@ -1100,19 +1101,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                               f"已对齐:{has_aligned_door}")
                     last_ground_diagnostic = diagnostic_now
                     last_diagnostic_state = bot_state
-                if valid_door_box: global_last_door_time = time.time()
-                if bot_state != "APPROACH_DOOR":
-                    centered_door_count = 0
-                    near_door_memory = False
-                    memory_forward_steps = 0
-                elif valid_door_box:
-                    memory_forward_steps = 0
-                    if abs(valid_door_box['x'] - center_x) <= 80 and valid_door_box['h'] >= h * 0.20:
-                        centered_door_count += 1
-                    else:
-                        centered_door_count = 0
-                    near_door_memory = centered_door_count >= 3
-
                 if bot_state != "COMPASS_RUSH":
                     compass_turning = False
 
@@ -1125,18 +1113,36 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         print(f"   👁️ AI视觉: 捕获[{t_name}] (高度:{target_focus['h']:.1f}, 偏差X:{target_focus['x'] - center_x:.1f})")
                         self.last_ai_print = curr_t
 
-                    if bot_state == "COMPASS_RUSH":
-                        print(f"\n🎯 [视觉接管] 奔袭途中发现 [{t_name}]！切入突击模式...")
+                    if bot_state == "COMPASS_RUSH" or (
+                        valid_door_box and bot_state in ("RUNNING", "CIRCLING")
+                    ):
+                        print(f"\n🎯 [视觉接管] 发现 [{t_name}]，切入突击模式...")
                         stop_all()
-
                         bot_state = "APPROACH_DOOR" if valid_door_box else "RUNNING"
                         is_skew_locked = False
                         last_aspect_ratio = 0.0
-                        has_aligned_door = False
                         last_action_log = ""
                         global_progress_time = time.time()
-                        global_last_seen_time = time.time()
-                        continue
+                        compass_turning = False
+                        centered_door_count = 0
+                        # 同一帧立即处理门框，避免下一张图丢框后原地等待。
+                        if not valid_door_box:
+                            continue
+
+                if valid_door_box: global_last_door_time = time.time()
+                if bot_state != "APPROACH_DOOR":
+                    last_door_centered = False
+                    centered_door_count = 0
+                    near_door_memory = False
+                    memory_forward_steps = 0
+                elif valid_door_box:
+                    memory_forward_steps = 0
+                    last_door_centered = abs(valid_door_box['x'] - center_x) <= 80
+                    if last_door_centered and valid_door_box['h'] >= h * 0.20:
+                        centered_door_count += 1
+                    else:
+                        centered_door_count = 0
+                    near_door_memory = centered_door_count >= 3
 
                 # ==========================================
                 # 🔄 状态机：导航与动作执行
@@ -1248,16 +1254,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             self.rotate_mouse_raw(sweep_speed, 0)
 
                 elif bot_state == "RUNNING":
-                    if valid_door_box:
-                        print("\n🚪 发现大门！切入最高优先级进门状态！")
-                        stop_all()
-                        bot_state = "APPROACH_DOOR"
-                        is_skew_locked = False
-                        last_aspect_ratio = 0.0
-                        has_aligned_door = False
-                        last_action_log = ""
-                        global_progress_time = time.time()
-                        continue
                     if toilet_box:
                         self.last_known_toilet_h = toilet_box['h']
                     if not toilet_box:
@@ -1354,16 +1350,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         bot_state = "COMPASS_RUSH"
                         continue
 
-                    if valid_door_box:
-                        print("\n🚪 绕桩锁定大门！刹车切入大门突击！")
-                        stop_all()
-                        bot_state = "APPROACH_DOOR"
-                        is_skew_locked = False
-                        last_aspect_ratio = 0.0
-                        has_aligned_door = False
-                        last_action_log = ""
-                        continue
-
                     if time.time() - last_circle_pause_time > 4.0:
                         stop_all()
                         for _ in range(12):
@@ -1457,7 +1443,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if not valid_door_box:
                         time_since_lost = time.time() - global_last_door_time
 
-                        if near_door_memory and memory_forward_steps < 4:
+                        step_limit = 4 if near_door_memory else int(last_door_centered)
+                        if memory_forward_steps < step_limit:
                             stop_all()
                             set_key('ctrl', True)
                             step_started_at = time.perf_counter()
@@ -1467,28 +1454,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             finally:
                                 stop_all()
                             memory_forward_steps += 1
-                            print(f"[近门记忆] 慢进第{memory_forward_steps}/4段（0.5秒），已停步，重新截图检查F")
+                            print(f"[近门记忆] 慢进第{memory_forward_steps}/{step_limit}段（0.5秒），已停步，重新截图检查F")
                             global_progress_time = time.time()
                             last_action_log = "MEMORY_APPROACH"
                             continue  # 停稳后从主循环获取新画面，不能沿用前进前的截图。
-                        elif time_since_lost < 1:
-                            if last_action_log != "BLIND_RUSH":
-                                print("\n⚠️ 贴脸大门视野闪断！保持 Ctrl+W 惯坚盲进！")
-                                last_action_log = "BLIND_RUSH"
-                            set_key('shift', False)
-                            set_key('a', False)
-                            set_key('d', False)
-                            set_key('ctrl', True)
-                            set_key('w', True)
-                            global_progress_time = time.time()
                         elif time_since_lost < 2.2:
                             stop_all()
                             if last_action_log != "WAIT_DOOR":
-                                print(f"   ⏳ 视野闪断超1.5秒，原地等待扫描F...")
+                                print(f"   ⏳ 门框暂时丢失，停步等待新画面...")
                                 last_action_log = "WAIT_DOOR"
                         else:
                             stop_all()
-                            print("\n⚠️ 彻底丢失大门超 3.5s！(超时触发)")
+                            print("\n⚠️ 门框丢失超 2.2s，恢复搜索。")
                             self.door_height_reached = False 
                             if toilet_box:
                                 print("   🔄 视野内存在厕所，平滑降级为【厕所突击】(RUNNING)...")

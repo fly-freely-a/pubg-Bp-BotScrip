@@ -41,7 +41,7 @@ class NearDoorMemoryTests(unittest.TestCase):
 
     def test_memory_forward_stops_after_each_half_second_and_limits_to_four_steps(self):
         branch = copy.deepcopy(next(n for n in ast.walk(self.tree) if isinstance(n, ast.If)
-                                    and ast.unparse(n.test) == 'near_door_memory and memory_forward_steps < 4'))
+                                    and ast.unparse(n.test) == 'memory_forward_steps < step_limit'))
         branch.orelse = []
         class EndIteration(ast.NodeTransformer):
             def visit_Continue(self, node):
@@ -50,7 +50,7 @@ class NearDoorMemoryTests(unittest.TestCase):
             test=ast.Constant(True), body=[EndIteration().visit(branch), ast.Break()], orelse=[])],
             type_ignores=[]))
         keys, stop, sleep = Mock(), Mock(), Mock()
-        namespace = dict(near_door_memory=True, memory_forward_steps=0, set_key=keys,
+        namespace = dict(step_limit=4, memory_forward_steps=0, set_key=keys,
                          stop_all=stop, time=SimpleNamespace(time=lambda: 10,
                          perf_counter=lambda: 0, sleep=sleep), last_action_log='', print=Mock())
         for expected in range(1, 5):
@@ -62,3 +62,29 @@ class NearDoorMemoryTests(unittest.TestCase):
         self.assertEqual(namespace['memory_forward_steps'], 4)
         self.assertEqual(sleep.call_count, 4)
         self.assertEqual(keys.call_count, 8)
+
+    def test_only_centered_last_frame_allows_one_step_without_close_history(self):
+        limit = next(n for n in ast.walk(self.tree) if isinstance(n, ast.Assign)
+                     and ast.unparse(n.targets[0]) == 'step_limit')
+        module = compile(ast.Module(body=[limit], type_ignores=[]), '<step_limit>', 'exec')
+        for x, expected in ((936, 1), (838.5, 0)):
+            self.observe(x=x, height=169.5)
+            self.observe(visible=False)
+            exec(module, self.namespace)
+            self.assertEqual(self.namespace['step_limit'], expected)
+
+    def test_first_door_detection_reaches_approach_in_same_iteration(self):
+        handoff = next(n for n in ast.walk(self.tree) if isinstance(n, ast.If)
+                       and n.body and '[视觉接管]' in ast.unparse(n.body[0]))
+        reached = ast.Assign(targets=[ast.Name(id='reached', ctx=ast.Store())], value=ast.Constant(True))
+        module = ast.fix_missing_locations(ast.Module(body=[ast.For(
+            target=ast.Name(id='_', ctx=ast.Store()),
+            iter=ast.Tuple(elts=[ast.Constant(0)], ctx=ast.Load()),
+            body=[handoff, reached], orelse=[])], type_ignores=[]))
+        for state in ('COMPASS_RUSH', 'RUNNING', 'CIRCLING'):
+            namespace = dict(bot_state=state, valid_door_box=dict(x=936, h=169.5),
+                             t_name='大门', stop_all=Mock(), print=Mock(), time=Mock())
+            exec(compile(module, '<handoff>', 'exec'), namespace)
+            self.assertEqual(namespace['bot_state'], 'APPROACH_DOOR')
+            self.assertTrue(namespace['reached'])
+            namespace['stop_all'].assert_called_once_with()
