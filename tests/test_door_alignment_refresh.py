@@ -12,7 +12,7 @@ class DoorAlignmentRefreshTests(unittest.TestCase):
                            and ast.unparse(n.test) == 'valid_door_box'
                            and 'door_was_aligned' in ast.unparse(n))
         self.intercept = next(n for n in ast.walk(self.tree) if isinstance(n, ast.If)
-                              and n.body and ast.unparse(n.body[0]) == 'ignore_f = False')
+                              and n.body and ast.unparse(n.body[0]) == 'push_started_at = time.perf_counter()')
 
     def refresh(self, door, aligned, lost_for=1.0):
         namespace = dict(valid_door_box=door, has_aligned_door=aligned, center_x=960,
@@ -38,10 +38,12 @@ class DoorAlignmentRefreshTests(unittest.TestCase):
                          open_door_templates=[.95], game_img=object(), f_tmpl=object(),
                          cv2=SimpleNamespace(matchTemplate=lambda image, template, mode: template,
                                              minMaxLoc=lambda score:(0,score,None,None), TM_CCOEFF_NORMED=1),
-                         time=SimpleNamespace(time=lambda:100), last_door_diagnostic=0,
+                         time=SimpleNamespace(time=lambda:100, perf_counter=lambda:100), last_door_diagnostic=0,
+                         last_generic_f_at=float('-inf'),
                          stop_all=Mock(), print=Mock())
         exec(compile(ast.Module(body=[self.intercept], type_ignores=[]), '<intercept>', 'exec'), namespace)
-        self.assertTrue(namespace['ignore_f'])
+        self.assertFalse(namespace['door_ready'])
+        self.assertFalse(namespace['item_ready'])
         self.assertEqual(namespace['bot_state'], 'APPROACH_DOOR')
         self.assertLess(self.update.lineno, self.intercept.lineno)
 
