@@ -5,8 +5,6 @@ import ctypes
 import pyautogui
 import pydirectinput
 import sys
-from pathlib import Path
-from core.live_logs import LiveLogs
 
 # 💡 强制声明 DPI 感知，完美解决屏幕缩放导致的截图抓瞎问题！
 try:
@@ -21,7 +19,6 @@ pydirectinput.FAILSAFE = False
 from logic.bot import PUBGSmartMarkerV9
 
 if __name__ == "__main__":
-    live_logs = LiveLogs(Path(__file__).resolve().parent / "logs")
     controller = PUBGSmartMarkerV9()
     print("\n" + "=" * 50)
     print("🎮 脚本已就绪！请选择模式：")
@@ -79,5 +76,4 @@ if __name__ == "__main__":
             print(f"恢复桌面失败: {e}")
 
         print("👋 引导程序安全退出。")
-        live_logs.close()
         sys.exit(0)
