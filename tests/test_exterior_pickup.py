@@ -40,8 +40,8 @@ class ExteriorPickupTests(unittest.TestCase):
     def test_first_push_loots_outside_without_pressing_f(self):
         namespace, inputs = self.verify()
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
-        self.assertEqual(namespace['exterior_moves'], (('d', 1.3), ('w', 1.3), ('a', 1.3)))
-        self.assertEqual(namespace['exterior_return_moves'], (('d', 1.3), ('s', 1.3), ('a', 1.3)))
+        self.assertEqual(namespace['exterior_moves'], (('d', 1.0), ('w', 1.0), ('a', 1.0)))
+        self.assertEqual(namespace['exterior_return_moves'], (('d', 1.0), ('s', 1.0), ('a', 1.0)))
         self.assertTrue(namespace['first_push_seen'])
         inputs.assert_not_called()
 
@@ -82,9 +82,9 @@ class ExteriorPickupTests(unittest.TestCase):
         events, _ = self.run_exterior_pickup(route['exterior_moves'], route['exterior_return_moves'])
         self.assertEqual(events[-11:], [
             ('press', 'tab'), ('wait', .5),
-            ('d', True), ('wait', 1.3), ('d', False),
-            ('s', True), ('wait', 1.3), ('s', False),
-            ('a', True), ('wait', 1.3), ('a', False),
+            ('d', True), ('wait', 1.0), ('d', False),
+            ('s', True), ('wait', 1.0), ('s', False),
+            ('a', True), ('wait', 1.0), ('a', False),
         ])
 
     def test_f_at_threshold_does_not_interact(self):
