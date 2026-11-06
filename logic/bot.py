@@ -1550,6 +1550,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                     first_push_seen = True
                                     print(f"   📦 首次匹配【推门】(推门:{score_d:.4f})，先右移、前进、左移各1.3秒，再拾取外围物品。")
                                     exterior_moves = (('d', 1.3), ('w', 1.3), ('a', 1.3))
+                                    exterior_return_moves = (('d', 1.3), ('s', 1.3), ('a', 1.3))
                                     bot_state = "EXTERIOR_PICKUP"
                                     continue
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 推门:{score_d:.4f}) 按 F 交互，准备突入！")
@@ -1566,6 +1567,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
                                 time.sleep(0.2)
                                 exterior_moves = (('a', 0.8), ('s', 0.7))
+                                exterior_return_moves = ()
                                 bot_state = "EXTERIOR_PICKUP"
                     else:
                         print(f"   ⚠️ F 提示闪断或误报 (F置信度:{score_f:.2f})，退回罗盘奔袭...")
@@ -1636,6 +1638,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         self.pickup_all_items_in_tab(current_window_info)
                     pydirectinput.press('tab')
                     time.sleep(0.5)
+                    for key, duration in exterior_return_moves:
+                        set_key(key, True)
+                        try:
+                            time.sleep(duration)
+                        finally:
+                            set_key(key, False)
                     has_aligned_door = False
                     is_skew_locked = False
                     last_aspect_ratio = 0.0

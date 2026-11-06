@@ -29,6 +29,7 @@ class ExteriorPickupTests(unittest.TestCase):
     def test_generic_f_without_push_prompt_sends_f_and_loots_exterior(self):
         namespace, inputs = self.verify(.3)
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
+        self.assertEqual(namespace['exterior_return_moves'], ())
         self.assertEqual([call.args for call in inputs.call_args_list], [(0x46, 0, 0, 0), (0x46, 0, 2, 0)])
 
     def test_normal_door_keeps_existing_entry(self):
@@ -40,6 +41,7 @@ class ExteriorPickupTests(unittest.TestCase):
         namespace, inputs = self.verify()
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
         self.assertEqual(namespace['exterior_moves'], (('d', 1.3), ('w', 1.3), ('a', 1.3)))
+        self.assertEqual(namespace['exterior_return_moves'], (('d', 1.3), ('s', 1.3), ('a', 1.3)))
         self.assertTrue(namespace['first_push_seen'])
         inputs.assert_not_called()
 
@@ -48,7 +50,7 @@ class ExteriorPickupTests(unittest.TestCase):
         self.assertNotIn('door2.png', source)
         self.assertNotIn('door3.png', source)
 
-    def test_exterior_sequence_moves_left_back_and_loots_without_forward(self):
+    def run_exterior_pickup(self, moves, return_moves):
         events = []
         info = object()
         namespace = dict(time=SimpleNamespace(time=lambda:100, sleep=lambda seconds:events.append(('wait', seconds))),
@@ -57,18 +59,33 @@ class ExteriorPickupTests(unittest.TestCase):
                          pydirectinput=SimpleNamespace(press=lambda key:events.append(('press',key))),
                          self=SimpleNamespace(pickup_all_items_in_tab=lambda window:events.append(('pickup',window))),
                          current_window_info=info, print=Mock(), dist_history=[20, 25],
-                         exterior_moves=(('a', .8), ('s', .7)),
+                         exterior_moves=moves, exterior_return_moves=return_moves,
                          has_aligned_door=True, is_skew_locked=True, last_aspect_ratio=.6)
         exec(compile(ast.Module(body=self.body('EXTERIOR_PICKUP'), type_ignores=[]), '<pickup>', 'exec'), namespace)
-        self.assertEqual(events, [('stop',), ('a', True), ('wait', .8), ('a', False),
-                                  ('s', True), ('wait', .7), ('s', False),
-                                  ('press','tab'), ('wait',1.), ('pickup',info),
-                                  ('press','tab'), ('wait',.5)])
         self.assertEqual(namespace['bot_state'], 'COMPASS_RUSH')
         self.assertFalse(namespace['has_aligned_door'])
         self.assertFalse(namespace['is_skew_locked'])
         self.assertEqual(namespace['last_aspect_ratio'], 0.0)
         self.assertEqual(namespace['dist_history'], [])
+
+        return events, info
+
+    def test_exterior_sequence_moves_left_back_and_loots_without_forward(self):
+        events, info = self.run_exterior_pickup((('a', .8), ('s', .7)), ())
+        self.assertEqual(events, [('stop',), ('a', True), ('wait', .8), ('a', False),
+                                  ('s', True), ('wait', .7), ('s', False),
+                                  ('press','tab'), ('wait',1.), ('pickup',info),
+                                  ('press','tab'), ('wait',.5)])
+
+    def test_first_push_returns_after_closing_inventory(self):
+        route, _ = self.verify()
+        events, _ = self.run_exterior_pickup(route['exterior_moves'], route['exterior_return_moves'])
+        self.assertEqual(events[-11:], [
+            ('press', 'tab'), ('wait', .5),
+            ('d', True), ('wait', 1.3), ('d', False),
+            ('s', True), ('wait', 1.3), ('s', False),
+            ('a', True), ('wait', 1.3), ('a', False),
+        ])
 
     def test_f_at_threshold_does_not_interact(self):
         namespace, inputs = self.verify(.95, f_score=.72)
