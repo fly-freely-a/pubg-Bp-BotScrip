@@ -1377,24 +1377,24 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if not valid_door_box:
                         time_since_lost = time.time() - global_last_door_time
 
-                        if time_since_lost < 1:
-                            if last_action_log != "BLIND_RUSH":
-                                print("\n⚠️ 贴脸大门视野闪断！保持 Ctrl+W 惯坚盲进！")
-                                last_action_log = "BLIND_RUSH"
-                            set_key('shift', False)
-                            set_key('a', False)
-                            set_key('d', False)
-                            set_key('ctrl', True)
-                            set_key('w', True)
+                        if keys_pressed['ctrl'] and keys_pressed['w']:
+                            # 延续上一帧的接近方向，松键后再取新画面检查交互提示。
+                            try:
+                                time.sleep(0.3)
+                            finally:
+                                stop_all()
+                            print("   🚶 门框暂时丢失，已慢进0.3秒并停步，重新检查F提示。")
+                            last_action_log = "WAIT_DOOR"
                             global_progress_time = time.time()
+                            continue
                         elif time_since_lost < 2.2:
                             stop_all()
                             if last_action_log != "WAIT_DOOR":
-                                print(f"   ⏳ 视野闪断超1.5秒，原地等待扫描F...")
+                                print("   ⏳ 门框暂时丢失，原地等待F提示...")
                                 last_action_log = "WAIT_DOOR"
                         else:
                             stop_all()
-                            print("\n⚠️ 彻底丢失大门超 3.5s！(超时触发)")
+                            print("\n⚠️ 门框丢失达到2.2秒，恢复搜索。")
                             self.door_height_reached = False 
                             if toilet_box:
                                 print("   🔄 视野内存在厕所，平滑降级为【厕所突击】(RUNNING)...")
