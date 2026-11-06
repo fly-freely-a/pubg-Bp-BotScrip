@@ -865,6 +865,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_space_time = 0.0
         verify_count = 0
         first_push_seen = False
+        first_push_aligned = False
 
         last_afk_move_time = time.time()
 
@@ -956,6 +957,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                     ignore_f = False
+                    if (not first_push_seen and current_f_score > 0.72 and door_tmpl is not None
+                            and not (first_push_aligned and time.time() - global_last_door_time < 2.2)):
+                        push_result = cv2.matchTemplate(game_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
+                        ignore_f = cv2.minMaxLoc(push_result)[1] > 0.70
                     # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
                     # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
                     if bot_state == 'APPROACH_DOOR':
@@ -1019,7 +1024,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
-                if valid_door_box: global_last_door_time = time.time()
+                if valid_door_box:
+                    global_last_door_time = time.time()
+                    first_push_aligned = (
+                        valid_door_box['w'] / valid_door_box['h'] >= 0.45
+                        and abs(valid_door_box['x'] - center_x) <= 120
+                    )
 
                 if target_focus:
                     global_last_seen_time = time.time()

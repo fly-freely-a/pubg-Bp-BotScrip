@@ -96,3 +96,26 @@ class ExteriorPickupTests(unittest.TestCase):
         namespace, _ = self.verify(.70)
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
         self.assertIn('推门得分:0.7000', namespace['print'].call_args.args[0])
+
+    def test_first_push_waits_for_recent_alignment_without_blocking_generic_f(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
+        branch = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
+                      and node.body and ast.unparse(node.body[0]) == 'ignore_f = False')
+        module = compile(ast.Module(body=[branch], type_ignores=[]), '<intercept>', 'exec')
+        for seen, aligned, age, push_score, expected in (
+            (False, False, 0.1, .95, 'APPROACH_DOOR'),
+            (False, True, 2.3, .95, 'APPROACH_DOOR'),
+            (False, True, 0.1, .95, 'VERIFY_DOOR'),
+            (False, False, 0.1, .40, 'VERIFY_DOOR'),
+            (True, False, 0.1, .95, 'VERIFY_DOOR'),
+        ):
+            with self.subTest(seen=seen, aligned=aligned, age=age, push_score=push_score):
+                namespace = dict(bot_state='APPROACH_DOOR', current_f_score=.99,
+                                 first_push_seen=seen, first_push_aligned=aligned,
+                                 global_last_door_time=100-age, last_door_diagnostic=100,
+                                 f_tmpl=object(), game_img=object(), door_tmpl=object(),
+                                 time=SimpleNamespace(time=lambda:100), stop_all=Mock(), print=Mock(),
+                                 cv2=SimpleNamespace(matchTemplate=Mock(), TM_CCOEFF_NORMED=1,
+                                                     minMaxLoc=lambda _: (0, push_score, None, None)))
+                exec(module, namespace)
+                self.assertEqual(namespace['bot_state'], expected)
