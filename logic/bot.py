@@ -866,6 +866,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         verify_count = 0
         first_push_seen = False
         first_push_aligned = False
+        recheck_aligned_after_step = False
 
         last_afk_move_time = time.time()
 
@@ -885,6 +886,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         try:
             while self.running:
                 if self.is_paused:
+                    recheck_aligned_after_step = False
                     stop_all()
                     time.sleep(1.0)
                     continue
@@ -896,6 +898,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 game_img, current_window_info = self.capture_game_screen()
                 # frame_captured_at = time.time()  # 截图诊断暂时停用
                 if game_img is None: time.sleep(0.05); continue
+
+                aligned_after_step = recheck_aligned_after_step
+                recheck_aligned_after_step = False
 
                 current_f_score = 0.0
                 if f_tmpl is not None:
@@ -958,6 +963,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                     ignore_f = False
                     if (not first_push_seen and current_f_score > 0.72 and door_tmpl is not None
+                            and not aligned_after_step
                             and not (first_push_aligned and time.time() - global_last_door_time < 2.2)):
                         push_result = cv2.matchTemplate(game_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
                         ignore_f = cv2.minMaxLoc(push_result)[1] > 0.70
@@ -1390,10 +1396,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if keys_pressed['ctrl'] and keys_pressed['w']:
                             # 延续上一帧的接近方向，松键后再取新画面检查交互提示。
                             try:
-                                time.sleep(0.5)
+                                time.sleep(0.4)
                             finally:
                                 stop_all()
-                            print("   🚶 门框暂时丢失，已慢进0.5秒并停步，重新检查F提示。")
+                            recheck_aligned_after_step = first_push_aligned
+                            print("   🚶 门框暂时丢失，已慢进0.4秒并停步，重新检查F提示。")
                             last_action_log = "WAIT_DOOR"
                             global_progress_time = time.time()
                             continue
