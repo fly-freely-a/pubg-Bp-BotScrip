@@ -97,7 +97,7 @@ class ExteriorPickupTests(unittest.TestCase):
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
         self.assertIn('推门得分:0.7000', namespace['print'].call_args.args[0])
 
-    def test_first_push_waits_for_recent_alignment_without_blocking_generic_f(self):
+    def test_push_waits_for_recent_alignment_without_blocking_generic_f(self):
         tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
         branch = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
                       and node.body and ast.unparse(node.body[0]) == 'ignore_f = False')
@@ -108,11 +108,13 @@ class ExteriorPickupTests(unittest.TestCase):
             (False, True, 2.3, True, .95, 'VERIFY_DOOR'),
             (False, True, 0.1, False, .95, 'VERIFY_DOOR'),
             (False, False, 0.1, False, .40, 'VERIFY_DOOR'),
-            (True, False, 0.1, False, .95, 'VERIFY_DOOR'),
+            (True, False, 0.1, False, .95, 'APPROACH_DOOR'),
+            (True, True, 0.1, False, .95, 'VERIFY_DOOR'),
+            (True, True, 2.3, True, .95, 'VERIFY_DOOR'),
         ):
             with self.subTest(seen=seen, aligned=aligned, age=age, after_step=after_step, push_score=push_score):
                 namespace = dict(bot_state='APPROACH_DOOR', current_f_score=.99,
-                                 first_push_seen=seen, first_push_aligned=aligned,
+                                 first_push_seen=seen, push_door_aligned=aligned,
                                  aligned_after_step=after_step,
                                  global_last_door_time=100-age, last_door_diagnostic=100,
                                  f_tmpl=object(), game_img=object(), door_tmpl=object(),

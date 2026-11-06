@@ -865,7 +865,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         last_space_time = 0.0
         verify_count = 0
         first_push_seen = False
-        first_push_aligned = False
+        push_door_aligned = False
         recheck_aligned_after_step = False
 
         last_afk_move_time = time.time()
@@ -962,9 +962,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # ==========================================
                 if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                     ignore_f = False
-                    if (not first_push_seen and current_f_score > 0.72 and door_tmpl is not None
+                    if (current_f_score > 0.72 and door_tmpl is not None
                             and not aligned_after_step
-                            and not (first_push_aligned and time.time() - global_last_door_time < 2.2)):
+                            and not (push_door_aligned and time.time() - global_last_door_time < 2.2)):
                         push_result = cv2.matchTemplate(game_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
                         ignore_f = cv2.minMaxLoc(push_result)[1] > 0.70
                     # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
@@ -1032,7 +1032,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 if valid_door_box:
                     global_last_door_time = time.time()
-                    first_push_aligned = (
+                    push_door_aligned = (
                         valid_door_box['w'] / valid_door_box['h'] >= 0.45
                         and abs(valid_door_box['x'] - center_x) <= 120
                     )
@@ -1399,7 +1399,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 time.sleep(0.5)
                             finally:
                                 stop_all()
-                            recheck_aligned_after_step = first_push_aligned
+                            recheck_aligned_after_step = push_door_aligned
                             print("   🚶 门框暂时丢失，已慢进0.5秒并停步，重新检查F提示。")
                             last_action_log = "WAIT_DOOR"
                             global_progress_time = time.time()
