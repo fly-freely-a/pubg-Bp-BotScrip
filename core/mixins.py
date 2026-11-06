@@ -2,6 +2,7 @@
 import os
 import time
 import math
+import random
 import cv2
 import numpy as np
 from PIL import ImageGrab
@@ -348,14 +349,10 @@ class MathMixin:
                 d = math.sqrt((map_x - px) ** 2 + (map_y - py) ** 2)
                 if d < min_dist: min_dist = d
             results.append({'target': target, 'coords': (map_x, map_y), 'distance': min_dist})
-        results.sort(key=lambda x: x['distance'])
-        best_choice = results[0]
         jumpable_targets = [r for r in results if r['distance'] <= self.jump_distance_threshold]
-        if len(jumpable_targets) > 1:
-            for r in jumpable_targets:
-                if r['target']['name'] != "精确厕所_1":
-                    best_choice = r
-                    break
+        best_choice = random.choice(jumpable_targets) if jumpable_targets else min(
+            results, key=lambda r: r['distance']
+        )
         print(f"   ✅ 测距完毕，选择跳伞区域: {best_choice['target']['name']} (理论距离={best_choice['distance']:.1f}px)")
         return best_choice['target'], best_choice['coords'], best_choice['distance']
 

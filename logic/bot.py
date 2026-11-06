@@ -346,9 +346,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             print(f"   🎯 已直接标记精确坐标点: {best_target['name']}")
             self.initial_target_coords = best_coords
             self.current_target_id = best_target['id']
-            if min_dist > 130.0:
+            if min_dist > self.jump_distance_threshold:
                 print(f"\n⛔ 警告: 目标点 {best_target['name']} 理论最短距离为 {min_dist:.1f}px")
-                print("⛔ 距离超过战术底线 (130px)！航线过偏，准备主动秒退本局...")
+                print(f"⛔ 距离超过战术底线 ({self.jump_distance_threshold:g}px)！航线过偏，准备主动秒退本局...")
                 pydirectinput.keyDown('m');
                 time.sleep(0.1);
                 pydirectinput.keyUp('m');
@@ -1567,7 +1567,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                     first_push_seen = True
                                     print(f"   📦 首次匹配【推门】(推门:{score_d:.4f})，先右移1秒、前进0.8秒、左移1秒，再拾取外围物品。")
                                     exterior_moves = (('d', 1.0), ('w', 0.8), ('a', 1.0))
-                                    exterior_return_moves = (('d', 1.0), ('s', 3.0), ('a', 1.0))
+                                    exterior_return_moves = (('d', 1.0), ('s', 3.0), ('a', 0.7))
                                     bot_state = "EXTERIOR_PICKUP"
                                     continue
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 推门:{score_d:.4f}) 按 F 交互，准备突入！")
