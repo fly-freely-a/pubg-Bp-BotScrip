@@ -1390,10 +1390,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if keys_pressed['ctrl'] and keys_pressed['w']:
                             # 延续上一帧的接近方向，松键后再取新画面检查交互提示。
                             try:
-                                time.sleep(0.3)
+                                time.sleep(0.6)
                             finally:
                                 stop_all()
-                            print("   🚶 门框暂时丢失，已慢进0.3秒并停步，重新检查F提示。")
+                            print("   🚶 门框暂时丢失，已慢进0.6秒并停步，重新检查F提示。")
                             last_action_log = "WAIT_DOOR"
                             global_progress_time = time.time()
                             continue
