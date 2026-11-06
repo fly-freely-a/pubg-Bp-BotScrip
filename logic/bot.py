@@ -1548,8 +1548,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             if score_d is not None and score_d > 0.70:
                                 if not first_push_seen:
                                     first_push_seen = True
-                                    print(f"   📦 首次匹配【推门】(推门:{score_d:.4f})，先右移、前进、后退各2秒，再拾取外围物品。")
-                                    exterior_moves = (('d', 2.0), ('w', 2.0), ('s', 2.0))
+                                    print(f"   📦 首次匹配【推门】(推门:{score_d:.4f})，先右移、前进、左移各1.3秒，再拾取外围物品。")
+                                    exterior_moves = (('d', 1.3), ('w', 1.3), ('a', 1.3))
                                     bot_state = "EXTERIOR_PICKUP"
                                     continue
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 推门:{score_d:.4f}) 按 F 交互，准备突入！")
