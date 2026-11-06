@@ -11,7 +11,7 @@ class ExteriorPickupTests(unittest.TestCase):
         return next(n.body for n in ast.walk(tree) if isinstance(n, ast.If)
                     and ast.unparse(n.test) == f"bot_state == '{state}'")
 
-    def verify(self, open_score=.95, f_score=.99):
+    def verify(self, open_score=.95, f_score=.99, first_push_seen=False):
         inputs = Mock()
         namespace = dict(time=SimpleNamespace(time=lambda: 100, sleep=Mock()), game_img=object(),
                          f_tmpl=f_score, door_tmpl=open_score,
@@ -19,8 +19,11 @@ class ExteriorPickupTests(unittest.TestCase):
                                              minMaxLoc=lambda score: (0, score, None, None), TM_CCOEFF_NORMED=1),
                          win32api=SimpleNamespace(keybd_event=inputs),
                          win32con=SimpleNamespace(KEYEVENTF_KEYUP=2), verify_count=1,
-                         bot_state='VERIFY_DOOR', print=Mock(), stop_all=Mock(), pydirectinput=Mock())
-        exec(compile(ast.Module(body=self.body('VERIFY_DOOR'), type_ignores=[]), '<verify>', 'exec'), namespace)
+                         bot_state='VERIFY_DOOR', first_push_seen=first_push_seen, print=Mock(), stop_all=Mock(), pydirectinput=Mock())
+        block = ast.For(target=ast.Name(id='_', ctx=ast.Store()), iter=ast.Tuple(elts=[ast.Constant(0)], ctx=ast.Load()),
+                        body=self.body('VERIFY_DOOR'), orelse=[])
+        module = ast.fix_missing_locations(ast.Module(body=[block], type_ignores=[]))
+        exec(compile(module, '<verify>', 'exec'), namespace)
         return namespace, inputs
 
     def test_generic_f_without_push_prompt_sends_f_and_loots_exterior(self):
@@ -29,8 +32,16 @@ class ExteriorPickupTests(unittest.TestCase):
         self.assertEqual([call.args for call in inputs.call_args_list], [(0x46, 0, 0, 0), (0x46, 0, 2, 0)])
 
     def test_normal_door_keeps_existing_entry(self):
-        namespace, _ = self.verify(.95)
+        namespace, inputs = self.verify(.95, first_push_seen=True)
         self.assertEqual(namespace['bot_state'], 'ITEM_PICKUP')
+        self.assertEqual(inputs.call_count, 2)
+
+    def test_first_push_loots_outside_without_pressing_f(self):
+        namespace, inputs = self.verify()
+        self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
+        self.assertEqual(namespace['exterior_moves'], (('d', 2.0), ('w', 2.0), ('s', 2.0)))
+        self.assertTrue(namespace['first_push_seen'])
+        inputs.assert_not_called()
 
     def test_generic_pickup_does_not_require_close_door_template(self):
         source = (Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text()
@@ -46,6 +57,7 @@ class ExteriorPickupTests(unittest.TestCase):
                          pydirectinput=SimpleNamespace(press=lambda key:events.append(('press',key))),
                          self=SimpleNamespace(pickup_all_items_in_tab=lambda window:events.append(('pickup',window))),
                          current_window_info=info, print=Mock(), dist_history=[20, 25],
+                         exterior_moves=(('a', .8), ('s', .7)),
                          has_aligned_door=True, is_skew_locked=True, last_aspect_ratio=.6)
         exec(compile(ast.Module(body=self.body('EXTERIOR_PICKUP'), type_ignores=[]), '<pickup>', 'exec'), namespace)
         self.assertEqual(events, [('stop',), ('a', True), ('wait', .8), ('a', False),

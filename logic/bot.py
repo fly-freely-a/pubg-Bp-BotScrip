@@ -864,6 +864,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         last_space_time = 0.0
         verify_count = 0
+        first_push_seen = False
 
         last_afk_move_time = time.time()
 
@@ -1545,6 +1546,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 res_d = cv2.matchTemplate(c_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
                                 score_d = cv2.minMaxLoc(res_d)[1]
                             if score_d is not None and score_d > 0.70:
+                                if not first_push_seen:
+                                    first_push_seen = True
+                                    print(f"   📦 首次匹配【推门】(推门:{score_d:.4f})，先右移、前进、后退各2秒，再拾取外围物品。")
+                                    exterior_moves = (('d', 2.0), ('w', 2.0), ('s', 2.0))
+                                    bot_state = "EXTERIOR_PICKUP"
+                                    continue
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 推门:{score_d:.4f}) 按 F 交互，准备突入！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
                                 time.sleep(0.05)
@@ -1558,6 +1565,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 time.sleep(0.05)
                                 win32api.keybd_event(0x46, 0, win32con.KEYEVENTF_KEYUP, 0)
                                 time.sleep(0.2)
+                                exterior_moves = (('a', 0.8), ('s', 0.7))
                                 bot_state = "EXTERIOR_PICKUP"
                     else:
                         print(f"   ⚠️ F 提示闪断或误报 (F置信度:{score_f:.2f})，退回罗盘奔袭...")
@@ -1616,13 +1624,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 elif bot_state == "EXTERIOR_PICKUP":
                     global_progress_time = time.time()
                     stop_all()
-                    print("   📦 外围拾取：左移0.8秒、后退0.7秒，再打开背包拾取...")
-                    set_key('a', True)
-                    time.sleep(0.8)
-                    set_key('a', False)
-                    set_key('s', True)
-                    time.sleep(0.7)
-                    set_key('s', False)
+                    for key, duration in exterior_moves:
+                        set_key(key, True)
+                        try:
+                            time.sleep(duration)
+                        finally:
+                            set_key(key, False)
                     pydirectinput.press('tab')
                     time.sleep(1.0)
                     if hasattr(self, 'pickup_all_items_in_tab'):
