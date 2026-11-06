@@ -594,6 +594,15 @@ class ActionMixin:
         pydirectinput.keyUp('shift');
         pydirectinput.keyUp('ctrl')
 
+    def inventory_health_fraction(self, game_img):
+        # 截图已经归一化到 1920×1080。只统计从左侧连续填充的血条，排除灰色斜纹。
+        bar = np.median(game_img[1034:1046, 754:1166], axis=0)
+        blue, green, red = bar.T
+        filled = (red >= 140) & ((blue >= 130) | (red - green >= 40))
+        empty_columns = np.flatnonzero(~filled)
+        width = int(empty_columns[0]) if empty_columns.size else filled.size
+        return width / filled.size if width >= 3 else None
+
     def pickup_all_items_in_tab(self, window_info):
         print("   🔍 锁定'附近物品'第一格，准备执行原地狂点(利用UI自动顶替)...")
         start_x_virtual = 1920 * 0.1161

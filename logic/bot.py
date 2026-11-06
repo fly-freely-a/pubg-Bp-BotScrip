@@ -1634,9 +1634,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     if hasattr(self, 'pickup_all_items_in_tab'):
                         self.pickup_all_items_in_tab(current_window_info)
 
-                    pydirectinput.press('tab')
-                    time.sleep(0.5)
-
+                    afk_inventory_open = True
+                    next_health_check = time.monotonic()
                     last_afk_move_time = time.time()
                     bot_state = "AFK"
 
@@ -1672,6 +1671,28 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 elif bot_state == "AFK":
                     global_progress_time = time.time()
+                    if time.monotonic() >= next_health_check:
+                        if not afk_inventory_open:
+                            pydirectinput.press('tab')
+                            afk_inventory_open = True
+                            time.sleep(1.0)
+                            continue  # 用打开背包后的新画面读血条。
+                        health = self.inventory_health_fraction(game_img)
+                        if health is not None and health < 0.25:
+                            screen_x, screen_y = self.virtual_to_real_screen(402, 146, current_window_info)
+                            if screen_x is not None and screen_y is not None:
+                                pyautogui.rightClick(screen_x, screen_y)
+                                print(f"   🩹 血量约 {health:.0%}，尝试使用库存第一格。")
+                        else:
+                            pydirectinput.press('tab')
+                            afk_inventory_open = False
+                            time.sleep(0.5)
+                        next_health_check = time.monotonic() + 7.0
+
+                    if afk_inventory_open:
+                        time.sleep(1)
+                        continue
+
                     if time.time() - last_afk_move_time > random.uniform(15.0, 25.0):
                         if random.random() > 0.7:
                             self.rotate_mouse_raw(random.choice([-20, 20]), 0)
