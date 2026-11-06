@@ -1396,11 +1396,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if keys_pressed['ctrl'] and keys_pressed['w']:
                             # 延续上一帧的接近方向，松键后再取新画面检查交互提示。
                             try:
-                                time.sleep(0.4)
+                                time.sleep(0.5)
                             finally:
                                 stop_all()
                             recheck_aligned_after_step = first_push_aligned
-                            print("   🚶 门框暂时丢失，已慢进0.4秒并停步，重新检查F提示。")
+                            print("   🚶 门框暂时丢失，已慢进0.5秒并停步，重新检查F提示。")
                             last_action_log = "WAIT_DOOR"
                             global_progress_time = time.time()
                             continue
@@ -1567,7 +1567,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                     first_push_seen = True
                                     print(f"   📦 首次匹配【推门】(推门:{score_d:.4f})，先右移1秒、前进0.8秒、左移1秒，再拾取外围物品。")
                                     exterior_moves = (('d', 1.0), ('w', 0.8), ('a', 1.0))
-                                    exterior_return_moves = (('d', 1.0), ('s', 0.8), ('a', 1.0))
+                                    exterior_return_moves = (('d', 1.0), ('s', 3.0), ('a', 1.0))
                                     bot_state = "EXTERIOR_PICKUP"
                                     continue
                                 print(f"   🎯 核验为【大门】！(F:{score_f:.2f}, 推门:{score_d:.4f}) 按 F 交互，准备突入！")
