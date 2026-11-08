@@ -1889,6 +1889,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         time.sleep(1.5)
                         continue
 
+                    if self.yolo_model is None:
+                        print(f"[{now}] 🔎 已识别地图闹钟，提前加载并预热 YOLO。")
+                        self.init_yolo()
+                        continue  # 预热后重新截图，再判断航线和标点。
+
                     mx, my = window_info['map_offset']
                     map_img = game_img[my:my + self.MAP_SIZE, mx:mx + self.MAP_SIZE]
                     flight_path = self.extract_flight_path_v2(map_img)
