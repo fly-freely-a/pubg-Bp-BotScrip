@@ -935,6 +935,45 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 h, w = game_img.shape[:2]
                 center_x = w / 2
 
+                # ==========================================
+                # 全局智能 F 交互拦截器
+                # ==========================================
+                if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
+                    ignore_f = False
+                    if (current_f_score > 0.72 and door_tmpl is not None
+                            and not aligned_after_step
+                            and not (push_door_aligned and time.time() - global_last_door_time < 2.2)):
+                        push_result = cv2.matchTemplate(game_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
+                        ignore_f = cv2.minMaxLoc(push_result)[1] > 0.70
+                    # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
+                    # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
+                    if bot_state == 'APPROACH_DOOR' or (
+                        bot_state == 'COMPASS_RUSH' and entered_target_zone and keys_pressed['w']
+                    ):
+                        reason = ('未加载F模板' if f_tmpl is None else
+                                  '对齐条件拦截' if ignore_f else
+                                  'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
+                        if time.time() - last_door_diagnostic >= 2.0:
+                            print(f"\n🔎 [开门诊断] 状态:{bot_state} F得分:{current_f_score:.4f} 阈值:>0.72 "
+                                  f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
+                            last_door_diagnostic = time.time()
+                        # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
+                        # if frame_captured_at - last_door_snapshot >= 0.25:
+                        #     metadata = dict(state=bot_state, f_score=float(current_f_score),
+                        #                     f_threshold=0.72, template_loaded=f_tmpl is not None,
+                        #                     has_aligned_door=bool(has_aligned_door),
+                        #                     ignore_f=bool(ignore_f), reason=reason,
+                        #                     marker_distance=dist, captured_at=frame_captured_at)
+                        #     if door_recorder.submit(game_img, metadata):
+                        #         last_door_snapshot = frame_captured_at
+                    if current_f_score > 0.72 and not ignore_f:
+                        print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 立即停步并交互！")
+                        stop_all()
+                        bot_state = "VERIFY_DOOR"
+                        verify_count = 1
+                        global_progress_time = time.time()
+                        # 直接用当前帧核验并按 F，不等待下一帧，避免错过路边物资。
+
                 dist = self.get_radar_distance(game_img)
 
                 # ==========================================
@@ -977,42 +1016,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             global_progress_time = time.time()
                             continue
 
-                # ==========================================
-                # 全局智能 F 交互拦截器
-                # ==========================================
-                if bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
-                    ignore_f = False
-                    if (current_f_score > 0.72 and door_tmpl is not None
-                            and not aligned_after_step
-                            and not (push_door_aligned and time.time() - global_last_door_time < 2.2)):
-                        push_result = cv2.matchTemplate(game_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
-                        ignore_f = cv2.minMaxLoc(push_result)[1] > 0.70
-                    # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
-                    # 门与物资仍由 VERIFY_DOOR 核验，只有门才执行进屋动作。
-                    if bot_state == 'APPROACH_DOOR':
-                        reason = ('未加载F模板' if f_tmpl is None else
-                                  '对齐条件拦截' if ignore_f else
-                                  'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
-                        if time.time() - last_door_diagnostic >= 2.0:
-                            print(f"\n🔎 [开门诊断] F得分:{current_f_score:.4f} 阈值:>0.72 "
-                                  f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
-                            last_door_diagnostic = time.time()
-                        # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
-                        # if frame_captured_at - last_door_snapshot >= 0.25:
-                        #     metadata = dict(state=bot_state, f_score=float(current_f_score),
-                        #                     f_threshold=0.72, template_loaded=f_tmpl is not None,
-                        #                     has_aligned_door=bool(has_aligned_door),
-                        #                     ignore_f=bool(ignore_f), reason=reason,
-                        #                     marker_distance=dist, captured_at=frame_captured_at)
-                        #     if door_recorder.submit(game_img, metadata):
-                        #         last_door_snapshot = frame_captured_at
-                    if current_f_score > 0.72 and not ignore_f:
-                        print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 立即停步并交互！")
-                        stop_all()
-                        bot_state = "VERIFY_DOOR"
-                        verify_count = 1
-                        global_progress_time = time.time()
-                        # 直接用当前帧核验并按 F，不等待下一帧，避免错过路边物资。
                 # ==========================================
                 # YOLO 视觉逻辑
                 # ==========================================
