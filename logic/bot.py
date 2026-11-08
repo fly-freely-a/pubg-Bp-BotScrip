@@ -1704,7 +1704,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             time.sleep(1.0)
                             continue  # 用打开背包后的新画面读血条。
                         health = self.inventory_health_fraction(game_img)
-                        if health is not None and health < 0.30:
+                        if health is not None and health < 0.35:
                             screen_x, screen_y = self.virtual_to_real_screen(402, 146, current_window_info)
                             if screen_x is not None and screen_y is not None:
                                 pyautogui.rightClick(screen_x, screen_y)
