@@ -62,7 +62,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         # 🌟 方案一：懒加载，先把模型置为空，此时不读硬盘！
         self.yolo_model = None
-        self.yolo_cpu_fallback = False
         self.toilet_class_id = 0
         self.door_class_id = 1
 
@@ -122,24 +121,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             print("=" * 60)
 
     def predict_ground_targets(self, game_img):
-        options = dict(source=game_img, conf=0.5, classes=[0, 1], verbose=False, imgsz=640)
-        if self.yolo_cpu_fallback:
-            return self.yolo_model.predict(**options, device='cpu', half=False)
-
-        try:
-            return self.yolo_model.predict(**options, half=True)
-        except RuntimeError as error:
-            message = str(error).lower()
-            if not self.model_path.lower().endswith('.pt') or not (
-                'cuda' in message and 'out of memory' in message
-            ):
-                raise
-
-        # CUDA 初始化可能只完成了一部分，CPU 使用重新加载的权重和推理器。
-        print("⚠️ YOLO CUDA 显存不足，改用 CPU 推理，本次运行后续继续使用 CPU。")
-        self.yolo_model = YOLO(self.model_path, task='detect')
-        self.yolo_cpu_fallback = True
-        return self.yolo_model.predict(**options, device='cpu', half=False)
+        return self.yolo_model.predict(
+            source=game_img, conf=0.5, classes=[0, 1], verbose=False, half=True, imgsz=640
+        )
 
     def _load_template_with_mask(self, path):
         if not os.path.exists(path): return None, None
