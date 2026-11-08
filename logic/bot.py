@@ -971,11 +971,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         #         last_door_snapshot = frame_captured_at
                     if current_f_score > 0.72 and not ignore_f:
                         print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 立即停步并交互！")
+                        recheck_moving_door_f = bot_state == "APPROACH_DOOR" and keys_pressed['w']
                         stop_all()
                         bot_state = "VERIFY_DOOR"
                         verify_count = 1
                         global_progress_time = time.time()
-                        # 直接用当前帧核验并按 F，不等待下一帧，避免错过路边物资。
+                        # 先用当前帧区分推门和普通 F。
 
                 dist = self.get_radar_distance(game_img)
 
@@ -1603,6 +1604,24 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 time.sleep(0.4)
                                 bot_state = "ITEM_PICKUP"
                             else:
+                                if recheck_moving_door_f:
+                                    # 停步前的画面可能已经过期，重新确认普通 F 提示。
+                                    stopped_img, _ = self.capture_game_screen()
+                                    score_f = 0.0
+                                    if stopped_img is not None:
+                                        res_f = cv2.matchTemplate(stopped_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
+                                        score_f = cv2.minMaxLoc(res_f)[1]
+                                    if score_f <= 0.72:
+                                        print(f"   ⚠️ 停步后普通 F 提示已消失 (F:{score_f:.2f})，继续找门。")
+                                        bot_state = "APPROACH_DOOR"
+                                        continue
+                                    if door_tmpl is not None:
+                                        res_d = cv2.matchTemplate(stopped_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
+                                        score_d = cv2.minMaxLoc(res_d)[1]
+                                        if score_d > 0.70:
+                                            print("   🚪 停步后识别到推门提示，返回开门核验。")
+                                            bot_state = "APPROACH_DOOR"
+                                            continue
                                 push_score = f"{score_d:.4f}" if score_d is not None else "模板未加载"
                                 print(f"   📦 普通 F 交互！(F:{score_f:.2f}, 推门得分:{push_score}, 推门阈值:>0.70) 按 F 后执行外围拾取！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
