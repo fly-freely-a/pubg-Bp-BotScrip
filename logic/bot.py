@@ -111,7 +111,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         print("=" * 60)
 
     def init_yolo(self):
-        """🌟 专属的点火函数：只有在用户输入了 1 或 2 之后，才执行这一步"""
+        """加载模型并预热一次，供后续地面推理复用。"""
         if self.yolo_model is None:
             print("\n" + "=" * 60)
             print("🧠 正在唤醒 YOLOv8 视觉中枢 (引擎加速模式)...")
@@ -1877,11 +1877,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         pydirectinput.keyUp('m');
                         time.sleep(1.5)
                         continue
-
-                    if self.yolo_model is None:
-                        print(f"[{now}] 🔎 已识别地图闹钟，提前加载并预热 YOLO。")
-                        self.init_yolo()
-                        continue  # 预热后重新截图，再判断航线和标点。
 
                     mx, my = window_info['map_offset']
                     map_img = game_img[my:my + self.MAP_SIZE, mx:mx + self.MAP_SIZE]
