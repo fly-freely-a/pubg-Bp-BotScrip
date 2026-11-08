@@ -115,10 +115,17 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         if self.yolo_model is None:
             print("\n" + "=" * 60)
             print("🧠 正在唤醒 YOLOv8 视觉中枢 (引擎加速模式)...")
-            self.yolo_device = 0 if torch.cuda.is_available() else None
+            self.yolo_device = 0 if torch.backends.cuda.is_built() else None
             self.yolo_model = YOLO(self.model_path, task='detect')
             print("🔎 正在预热 YOLO，提前初始化地面推理...")
-            self.predict_ground_targets(np.zeros((1080, 1920, 3), dtype=np.uint8))
+            warmup_frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            try:
+                self.predict_ground_targets(warmup_frame)
+            except ValueError as error:
+                if self.yolo_device != 0 or not str(error).startswith("Invalid CUDA 'device=0' requested"):
+                    raise
+                self.yolo_device = None
+                self.predict_ground_targets(warmup_frame)
             device_name = (f"CUDA:0 ({torch.cuda.get_device_name(0)})"
                            if self.yolo_device == 0 else "自动选择（CUDA 不可用）")
             print(f"✅ YOLO 预热完成，推理设备：{device_name}")
