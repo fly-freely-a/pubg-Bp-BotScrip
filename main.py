@@ -23,18 +23,18 @@ from logic.bot import PUBGSmartMarkerV9
 if __name__ == "__main__":
     live_logs = LiveLogs(Path(__file__).resolve().parent / "logs")
     controller = PUBGSmartMarkerV9()
-    try:
-        controller.init_yolo()
-        print("\n" + "=" * 50)
-        print("🎮 脚本已就绪！请选择模式：")
-        print("1. 正常挂机模式 (全自动拉起游戏 + 匹配跳伞)")
-        print("2. 靶场单步测试模式 (请先进入游戏并标记黄点)")
-        print("=" * 50)
+    print("\n" + "=" * 50)
+    print("🎮 脚本已就绪！请选择模式：")
+    print("1. 正常挂机模式 (全自动拉起游戏 + 匹配跳伞)")
+    print("2. 靶场单步测试模式 (请先进入游戏并标记黄点)")
+    print("=" * 50)
 
+    try:
         while True:
             # 🌟 核心修改：使用原生 input() 完美兼容所有手机远程控制软件！
             # 注意：手机端输入 1 之后，记得按一下手机键盘上的【回车/发送】键
             choice = input("等待输入... (回车默认 1；输入 2 进入测试模式): ").strip() or '1'
+            controller.init_yolo()
             if choice == '1':
                 print("\n🚀 正在为您启动全自动挂机主循环...")
                 time.sleep(0.5)
@@ -43,6 +43,7 @@ if __name__ == "__main__":
 
             elif choice == '2':
                 print("\n🚀 正在为您自动切回游戏...")
+                controller.init_yolo()
                 if controller.bring_pubg_to_front():
                     time.sleep(0.5)  # 缓冲时间
                     print("🚀 成功切回游戏！请按下【F8】键立即激活地面测试...")

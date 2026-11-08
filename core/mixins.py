@@ -306,17 +306,10 @@ class VisionMixin:
             red_mask = mask1 | mask2
             kernel = np.ones((5, 5), np.uint8)
             red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel, iterations=3)
-            # 航线是虚线。连接同方向的线段，排除地图上孤立的红色元素。
-            lines = cv2.HoughLinesP(red_mask, 1, np.pi / 180, threshold=45,
-                                    minLineLength=400, maxLineGap=60)
-            if lines is None:
-                return []
-            x1, y1, x2, y2 = max(lines[:, 0], key=lambda line: math.hypot(
-                int(line[2]) - int(line[0]), int(line[3]) - int(line[1])
-            ))
-            steps = max(abs(x2 - x1), abs(y2 - y1))
-            return [(round(x1 + (x2 - x1) * i / steps), round(y1 + (y2 - y1) * i / steps))
-                    for i in range(steps + 1)]
+            points = cv2.findNonZero(red_mask)
+            if points is not None and len(points) > 50:
+                return [(int(p[0][0]), int(p[0][1])) for p in points]
+            return []
         except Exception:
             return []
 

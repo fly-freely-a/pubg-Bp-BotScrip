@@ -11,22 +11,15 @@ class ExteriorPickupTests(unittest.TestCase):
         return next(n.body for n in ast.walk(tree) if isinstance(n, ast.If)
                     and ast.unparse(n.test) == f"bot_state == '{state}'")
 
-    def verify(self, open_score=.95, f_score=.99, first_push_seen=False, stopped_scores=None):
+    def verify(self, open_score=.95, f_score=.99, first_push_seen=False):
         inputs = Mock()
-        stopped_frame = object()
-        def match(image, template, mode):
-            if image is stopped_frame:
-                return stopped_scores[0 if template == f_score else 1]
-            return template
         namespace = dict(time=SimpleNamespace(time=lambda: 100, sleep=Mock()), game_img=object(),
                          f_tmpl=f_score, door_tmpl=open_score,
-                         cv2=SimpleNamespace(matchTemplate=match,
+                         cv2=SimpleNamespace(matchTemplate=lambda image, template, mode: template,
                                              minMaxLoc=lambda score: (0, score, None, None), TM_CCOEFF_NORMED=1),
                          win32api=SimpleNamespace(keybd_event=inputs),
                          win32con=SimpleNamespace(KEYEVENTF_KEYUP=2), verify_count=1,
-                         bot_state='VERIFY_DOOR', first_push_seen=first_push_seen,
-                         recheck_moving_door_f=stopped_scores is not None,
-                         self=SimpleNamespace(capture_game_screen=lambda: (stopped_frame, None)), print=Mock(), stop_all=Mock(), pydirectinput=Mock())
+                         bot_state='VERIFY_DOOR', first_push_seen=first_push_seen, print=Mock(), stop_all=Mock(), pydirectinput=Mock())
         block = ast.For(target=ast.Name(id='_', ctx=ast.Store()), iter=ast.Tuple(elts=[ast.Constant(0)], ctx=ast.Load()),
                         body=self.body('VERIFY_DOOR'), orelse=[])
         module = ast.fix_missing_locations(ast.Module(body=[block], type_ignores=[]))
@@ -38,17 +31,6 @@ class ExteriorPickupTests(unittest.TestCase):
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
         self.assertEqual(namespace['exterior_return_moves'], ())
         self.assertEqual([call.args for call in inputs.call_args_list], [(0x46, 0, 0, 0), (0x46, 0, 2, 0)])
-
-    def test_moving_door_generic_f_must_still_be_present_after_stopping(self):
-        for stopped_scores, expected, presses in (
-            ((.45, .3), 'APPROACH_DOOR', 0),
-            ((.95, .86), 'APPROACH_DOOR', 0),
-            ((.95, .3), 'EXTERIOR_PICKUP', 2),
-        ):
-            with self.subTest(stopped_scores=stopped_scores):
-                namespace, inputs = self.verify(.3, stopped_scores=stopped_scores)
-                self.assertEqual(namespace['bot_state'], expected)
-                self.assertEqual(inputs.call_count, presses)
 
     def test_normal_door_keeps_existing_entry(self):
         namespace, inputs = self.verify(.95, first_push_seen=True)
@@ -131,7 +113,7 @@ class ExteriorPickupTests(unittest.TestCase):
             (True, True, 2.3, True, .95, 'VERIFY_DOOR'),
         ):
             with self.subTest(seen=seen, aligned=aligned, age=age, after_step=after_step, push_score=push_score):
-                namespace = dict(bot_state='APPROACH_DOOR', current_f_score=.99, keys_pressed={'w': False},
+                namespace = dict(bot_state='APPROACH_DOOR', current_f_score=.99,
                                  first_push_seen=seen, push_door_aligned=aligned,
                                  aligned_after_step=after_step,
                                  global_last_door_time=100-age, last_door_diagnostic=100,
