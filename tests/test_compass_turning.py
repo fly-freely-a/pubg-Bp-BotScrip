@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 
 class CompassTurningTests(unittest.TestCase):
-    def replay(self, target_x, turning=False):
+    def replay(self, target_x, turning=False, dist=20, in_zone=True, sprinting=False):
         tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
         branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
                       and ast.unparse(n.test) == "bot_state == 'COMPASS_RUSH'"
@@ -20,7 +20,7 @@ class CompassTurningTests(unittest.TestCase):
             test=ast.Constant(True), body=[EndIteration().visit(branch), ast.Break()], orelse=[])],
             type_ignores=[]))
         events = []
-        keys = dict(w=True, a=True, d=False, shift=False, ctrl=False)
+        keys = dict(w=True, a=True, d=False, shift=sprinting, ctrl=False)
         def stop():
             events.append('stop')
             for key in keys:
@@ -33,11 +33,11 @@ class CompassTurningTests(unittest.TestCase):
                                      last_scrape_time=100)
         inputs = SimpleNamespace(press=Mock())
         namespace = dict(bot_state='COMPASS_RUSH', self=controller, game_img=object(),
-                         time=SimpleNamespace(time=lambda: 100), center_x=960, dist=20,
-                         entered_target_zone=True, compass_turning=turning,
+                         time=SimpleNamespace(time=lambda: 100), center_x=960, dist=dist,
+                         entered_target_zone=in_zone, compass_turning=turning,
                          keys_pressed=keys, stop_all=stop, set_key=set_key,
                          last_compass_turn_log=0.0,
-                         last_valid_tx_time=99.5, is_sprinting=False,
+                         last_valid_tx_time=99.5, is_sprinting=sprinting, last_w_refresh=100,
                          pydirectinput=inputs, print=Mock())
         exec(compile(module, '<compass>', 'exec'), namespace)
         return namespace, keys, events, inputs
@@ -61,3 +61,16 @@ class CompassTurningTests(unittest.TestCase):
         self.assertFalse(any(keys.values()))
         self.assertTrue(namespace['compass_turning'])
         inputs.press.assert_not_called()
+
+    def test_missing_distance_cancels_sprint_even_outside_the_zone(self):
+        for target_x in (960, None):
+            with self.subTest(target_x=target_x):
+                namespace, keys, _, _ = self.replay(target_x, dist=None, in_zone=False, sprinting=True)
+                self.assertFalse(keys['shift'])
+                self.assertTrue(keys['w'])
+                self.assertFalse(namespace['is_sprinting'])
+
+    def test_valid_distance_outside_the_zone_allows_sprint(self):
+        namespace, keys, _, _ = self.replay(960, dist=31, in_zone=False)
+        self.assertTrue(keys['shift'])
+        self.assertTrue(namespace['is_sprinting'])

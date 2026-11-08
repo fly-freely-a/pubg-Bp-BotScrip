@@ -1097,6 +1097,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 if bot_state == "COMPASS_RUSH":
                     tx_compass = self.find_target_on_compass(game_img)
+                    can_sprint = not entered_target_zone and dist is not None and dist > 30.0
+                    if not can_sprint and is_sprinting:
+                        set_key('shift', False)
+                        is_sprinting = False
+                        reason = "已进圈" if entered_target_zone else "小地图距离无效"
+                        print(f"   🚶 {reason}，解除疾跑。")
                     if tx_compass is not None:
                         last_valid_tx_compass = tx_compass
                         last_valid_tx_time = time.time()
@@ -1135,10 +1141,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
 
                         if entered_target_zone:
-                            if is_sprinting:
-                                print("   🚶 进圈解除疾跑，静步索敌...")
-                                set_key('shift', False)
-                                is_sprinting = False
                             if not keys_pressed['w']:
                                 set_key('w', True)
                             curr_t = time.time()
@@ -1153,8 +1155,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         else:
                             if not is_sprinting:
                                 set_key('w', True)
-                                set_key('shift', True)
-                                is_sprinting = True
+                                set_key('shift', can_sprint)
+                                is_sprinting = can_sprint
                                 last_w_refresh = time.time()
                             elif time.time() - last_w_refresh > 3.0:
                                 set_key('shift', False)
@@ -1200,8 +1202,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 set_key('w', True)
                             elif not is_sprinting:
                                 set_key('w', True)
-                                set_key('shift', True)
-                                is_sprinting = True
+                                set_key('shift', can_sprint)
+                                is_sprinting = can_sprint
                         else:
                             stop_all()
                             sweep_speed = 30 if (dist is not None and dist <= 25.0) else 120
