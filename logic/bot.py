@@ -1562,6 +1562,22 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 smooth_glide_mouse(diff_door)
                             global_progress_time = time.time()
                         else:
+                            if door_h >= h * 0.40:
+                                stop_all()
+                                smooth_glide_mouse(diff_door)
+                                set_key('ctrl', True)
+                                step_started_at = time.perf_counter()
+                                try:
+                                    set_key('w', True)
+                                    time.sleep(max(0.0, 0.3 - (time.perf_counter() - step_started_at)))
+                                finally:
+                                    stop_all()
+                                if last_action_log != "DOOR_SHORT_STEP":
+                                    print("   🚶 已靠近门，改为 Ctrl+W 短步前进0.3秒，停步后检查F提示。")
+                                    last_action_log = "DOOR_SHORT_STEP"
+                                global_progress_time = time.time()
+                                continue
+
                             set_key('a', False)
                             set_key('d', False)
                             set_key('shift', False)
