@@ -62,6 +62,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         # 🌟 方案一：懒加载，先把模型置为空，此时不读硬盘！
         self.yolo_model = None
+        self.yolo_cpu_fallback = False
         self.toilet_class_id = 0
         self.door_class_id = 1
 
@@ -117,6 +118,27 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             self.yolo_model = YOLO(self.model_path, task='detect')
             print("✅ 大脑加载完毕，已具备实战视力！")
             print("=" * 60)
+
+    def predict_ground_targets(self, game_img):
+        options = dict(source=game_img, conf=0.5, classes=[0, 1], verbose=False, imgsz=640)
+        if self.yolo_cpu_fallback:
+            return self.yolo_model.predict(**options, device='cpu', half=False)
+
+        try:
+            return self.yolo_model.predict(**options, half=True)
+        except RuntimeError as error:
+            message = str(error).lower()
+            if not self.model_path.lower().endswith('.pt') or not (
+                'cuda' in message and 'out of memory' in message
+            ):
+                raise
+
+        # CUDA 初始化可能只完成了一部分，CPU 使用重新加载的权重和推理器。
+        print("⚠️ YOLO CUDA 显存不足，改用 CPU 推理，本次运行后续继续使用 CPU。")
+        self.yolo_model = YOLO(self.model_path, task='detect')
+        self.yolo_cpu_fallback = True
+        return self.yolo_model.predict(**options, device='cpu', half=False)
+
     def _load_template_with_mask(self, path):
         if not os.path.exists(path): return None, None
         img_raw = cv2.imread(path, cv2.IMREAD_UNCHANGED)
@@ -999,7 +1021,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 toilet_box, valid_door_box = None, None
 
                 if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
-                    results = self.yolo_model.predict(source=game_img, conf=0.5, classes=[0, 1], verbose=False,half=True, imgsz=640,)
+                    results = self.predict_ground_targets(game_img)
                     toilet_boxes, door_boxes = [], []
 
                     for r in results:
@@ -1308,7 +1330,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             c_img, _ = self.capture_game_screen()
                             if c_img is None: continue
                             
-                            res = self.yolo_model.predict(source=c_img, conf=0.5, classes=[0, 1], verbose=False,half=True, imgsz=640)
+                            res = self.predict_ground_targets(c_img)
                             t_cx = None
                             found_door_in_pause = False
                             
