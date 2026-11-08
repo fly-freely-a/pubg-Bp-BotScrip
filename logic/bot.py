@@ -116,12 +116,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             print("\n" + "=" * 60)
             print("🧠 正在唤醒 YOLOv8 视觉中枢 (引擎加速模式)...")
             self.yolo_device = 0 if torch.cuda.is_available() else None
+            self.yolo_model = YOLO(self.model_path, task='detect')
+            print("🔎 正在预热 YOLO，提前初始化地面推理...")
+            self.predict_ground_targets(np.zeros((1080, 1920, 3), dtype=np.uint8))
             device_name = (f"CUDA:0 ({torch.cuda.get_device_name(0)})"
                            if self.yolo_device == 0 else "自动选择（CUDA 不可用）")
-            self.yolo_model = YOLO(self.model_path, task='detect')
-            print(f"🔎 正在预热 YOLO，推理设备：{device_name}")
-            self.predict_ground_targets(np.zeros((1080, 1920, 3), dtype=np.uint8))
-            print("✅ YOLO 预热完成。")
+            print(f"✅ YOLO 预热完成，推理设备：{device_name}")
             print("=" * 60)
 
     def predict_ground_targets(self, game_img):
