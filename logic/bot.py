@@ -859,9 +859,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # 3. 【核心：高频像素切割】
                 # 把算出来的位移，切碎成每次只移动 3 像素，利用 for 循环瞬间执行完
                 # 游戏底层会把它识别成一次“极度平滑的鼠标拖拽”！
-            step = 3 if move_dist > 0 else -3
-            for _ in range(abs(move_dist)):
-                win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, step, 0, 0, 0)
+            direction = 1 if move_dist > 0 else -1
+            full_steps, remainder = divmod(abs(move_dist), 3)
+            for _ in range(full_steps):
+                win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, 3 * direction, 0, 0, 0)
+            if remainder:
+                win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, remainder * direction, 0, 0, 0)
         # 👆 复制到这里结束
 
         bot_state = "COMPASS_RUSH"
