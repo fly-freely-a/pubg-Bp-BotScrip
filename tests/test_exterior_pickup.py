@@ -58,7 +58,7 @@ class ExteriorPickupTests(unittest.TestCase):
     def test_first_push_loots_outside_without_pressing_f(self):
         namespace, inputs = self.verify()
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
-        self.assertEqual(namespace['exterior_moves'], (('d', 1.0), ('w', 0.8), ('a', 1.0)))
+        self.assertEqual(namespace['exterior_moves'], (('d', 1.0), ('w', 1.0), ('a', 1.0)))
         self.assertEqual(namespace['exterior_return_moves'], (('d', 1.0), ('s', 3.5), ('a', 0.8)))
         self.assertTrue(namespace['first_push_seen'])
         inputs.assert_not_called()
