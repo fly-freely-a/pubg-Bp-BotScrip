@@ -149,14 +149,14 @@ class ExteriorPickupTests(unittest.TestCase):
                       and 'door_height < near_door_height' in ast.unparse(node))
         module = compile(ast.Module(body=[branch], type_ignores=[]), '<door-alignment>', 'exec')
         namespace = dict(bot_state='APPROACH_DOOR', push_door_aligned=False, center_x=960,
-                         h=1080, near_door_height=432, door_center_limit=80, time=SimpleNamespace(time=lambda: 100),
+                         h=1080, near_door_height=432, door_center_limit=120, time=SimpleNamespace(time=lambda: 100),
                          print=Mock())
 
         for height, y, width, offset, expected in (
             (1017, 540, 550, 41.2, False),  # 贴脸门框
             (300, 150, 150, 41.2, False),   # 上边缘被裁掉
-            (300, 350, 150, 81, False),     # 超出居中门槛
-            (300, 350, 150, 80, True),      # 远处完整门框
+            (300, 350, 150, 121, False),     # 超出居中门槛
+            (300, 350, 150, 120, True),      # 远处完整门框
             (1017, 540, 400, 41.2, True),   # 贴脸后保留远处的对齐
         ):
             with self.subTest(height=height, y=y, width=width, offset=offset):

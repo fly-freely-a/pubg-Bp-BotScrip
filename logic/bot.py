@@ -1086,7 +1086,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         # 用首次看到的门框立即调整，下一帧可能已丢失。
 
                 near_door_height = h * 0.40
-                door_center_limit = 80
+                door_center_limit = 120
                 if valid_door_box:
                     global_last_door_time = time.time()
                     door_centered = abs(valid_door_box['x'] - center_x) <= door_center_limit
