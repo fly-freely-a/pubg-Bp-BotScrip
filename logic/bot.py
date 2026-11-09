@@ -869,8 +869,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         bot_state = "COMPASS_RUSH"
         entered_target_zone = False
-        compass_turning = False
-        last_compass_turn_log = 0.0
 
         last_action_log = ""
         self.last_ai_print = time.time()
@@ -1079,9 +1077,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         push_door_aligned = True
                         print("   🎯 远处门框已对齐，接下来只转视角和向前移动。")
 
-                if bot_state != "COMPASS_RUSH":
-                    compass_turning = False
-
                 if target_focus:
                     global_last_seen_time = time.time()
                     curr_t = time.time()
@@ -1136,24 +1131,15 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if dist is not None and dist <= 25.0 and abs_diff <= 40:
                             turn_multiplier = min(turn_multiplier, 1)
 
-                        if (entered_target_zone or compass_turning) and abs_diff > 60:
-                            stop_all()
-                            now = time.time()
-                            if not compass_turning or now - last_compass_turn_log >= 3.0:
-                                action = "继续" if compass_turning else "开始"
-                                print(f"[罗盘转向] {action} 偏差:{diff_x:.1f}px，停步转向，等待新画面确认")
-                                last_compass_turn_log = now
-                            compass_turning = True
-                            self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
-                            continue
-                        if compass_turning:
-                            print(f"[罗盘转向] 完成 新画面偏差:{diff_x:.1f}px，恢复前进")
-                            compass_turning = False
                         if abs_diff > 3:
                             self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
 
                         if entered_target_zone:
-                            if not keys_pressed['w']:
+                            if abs_diff > 60:
+                                if keys_pressed['w']:
+                                    print("   🛑 目标在侧后方，停步转身...")
+                                    set_key('w', False)
+                            elif not keys_pressed['w']:
                                 set_key('w', True)
                             curr_t = time.time()
                             last_scrape = getattr(self, 'last_scrape_time', 0)
@@ -1199,14 +1185,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     else:
                         time_since_last_seen = time.time() - last_valid_tx_time
 
-                        if compass_turning:
-                            stop_all()
-                            now = time.time()
-                            if now - last_compass_turn_log >= 3.0:
-                                print("[罗盘转向] 暂未找到黄点，保持停步并转动视角搜索")
-                                last_compass_turn_log = now
-                            self.rotate_mouse_raw(30 if entered_target_zone else 120, 0)
-                            continue
                         if time_since_last_seen < 1.0:
                             if entered_target_zone:
                                 set_key('shift', False)

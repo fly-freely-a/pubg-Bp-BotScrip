@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 
 class CompassTurningTests(unittest.TestCase):
-    def replay(self, target_x, turning=False, dist=20, in_zone=True, sprinting=False):
+    def replay(self, target_x, dist=20, in_zone=True, sprinting=False):
         tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
         branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
                       and ast.unparse(n.test) == "bot_state == 'COMPASS_RUSH'"
@@ -34,33 +34,18 @@ class CompassTurningTests(unittest.TestCase):
         inputs = SimpleNamespace(press=Mock())
         namespace = dict(bot_state='COMPASS_RUSH', self=controller, game_img=object(),
                          time=SimpleNamespace(time=lambda: 100), center_x=960, dist=dist,
-                         entered_target_zone=in_zone, compass_turning=turning,
+                         entered_target_zone=in_zone,
                          keys_pressed=keys, stop_all=stop, set_key=set_key,
-                         last_compass_turn_log=0.0,
                          last_valid_tx_time=99.5, is_sprinting=sprinting, last_w_refresh=100,
                          pydirectinput=inputs, print=Mock())
         exec(compile(module, '<compass>', 'exec'), namespace)
         return namespace, keys, events, inputs
 
-    def test_stop_precedes_turn_and_prevents_other_movement(self):
-        namespace, keys, events, inputs = self.replay(1100)
-        self.assertEqual(events[0], 'stop')
-        self.assertEqual(events[1][0], 'turn')
-        self.assertFalse(any(keys.values()))
-        self.assertTrue(namespace['compass_turning'])
-        inputs.press.assert_not_called()
-
-    def test_new_aligned_frame_resumes_forward(self):
-        namespace, keys, _, _ = self.replay(990, turning=True)
-        self.assertFalse(namespace['compass_turning'])
-        self.assertTrue(keys['w'])
-
-    def test_missing_compass_during_turn_never_uses_forward_memory(self):
-        namespace, keys, events, inputs = self.replay(None, turning=True)
-        self.assertEqual(events[0], 'stop')
-        self.assertFalse(any(keys.values()))
-        self.assertTrue(namespace['compass_turning'])
-        inputs.press.assert_not_called()
+    def test_turn_is_sent_before_releasing_forward(self):
+        _, keys, events, _ = self.replay(1100)
+        self.assertEqual(events[0][0], 'turn')
+        self.assertEqual(events[1], ('w', False))
+        self.assertFalse(keys['w'])
 
     def test_missing_distance_cancels_sprint_even_outside_the_zone(self):
         for target_x in (960, None):
