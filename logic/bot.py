@@ -1062,21 +1062,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
-                near_door_height = h * 0.40
-                door_center_limit = 80
-                if valid_door_box:
-                    global_last_door_time = time.time()
-                    door_centered = abs(valid_door_box['x'] - center_x) <= door_center_limit
-                    door_height = valid_door_box['h']
-                    door_y = valid_door_box['y']
-                    if (bot_state == "APPROACH_DOOR" and not push_door_aligned and door_centered
-                            and door_height < near_door_height
-                            and 0 < door_y - door_height / 2
-                            and door_y + door_height / 2 < h
-                            and valid_door_box['w'] / door_height >= 0.45):
-                        push_door_aligned = True
-                        print("   🎯 远处门框已对齐，接下来只转视角和向前移动。")
-
                 if target_focus:
                     global_last_seen_time = time.time()
                     curr_t = time.time()
@@ -1096,7 +1081,24 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         last_action_log = ""
                         global_progress_time = time.time()
                         global_last_seen_time = time.time()
-                        continue
+                        if not valid_door_box:
+                            continue
+                        # 用首次看到的门框立即调整，下一帧可能已丢失。
+
+                near_door_height = h * 0.40
+                door_center_limit = 80
+                if valid_door_box:
+                    global_last_door_time = time.time()
+                    door_centered = abs(valid_door_box['x'] - center_x) <= door_center_limit
+                    door_height = valid_door_box['h']
+                    door_y = valid_door_box['y']
+                    if (bot_state == "APPROACH_DOOR" and not push_door_aligned and door_centered
+                            and door_height < near_door_height
+                            and 0 < door_y - door_height / 2
+                            and door_y + door_height / 2 < h
+                            and valid_door_box['w'] / door_height >= 0.45):
+                        push_door_aligned = True
+                        print("   🎯 远处门框已对齐，接下来只转视角和向前移动。")
 
                 # ==========================================
                 # 🔄 状态机：导航与动作执行
