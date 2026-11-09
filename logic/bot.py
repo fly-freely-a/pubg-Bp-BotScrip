@@ -1065,9 +1065,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
                 near_door_height = h * 0.40
+                door_center_limit = 80
                 if valid_door_box:
                     global_last_door_time = time.time()
-                    door_centered = abs(valid_door_box['x'] - center_x) <= 120
+                    door_centered = abs(valid_door_box['x'] - center_x) <= door_center_limit
                     door_height = valid_door_box['h']
                     door_y = valid_door_box['y']
                     if (bot_state == "APPROACH_DOOR" and not push_door_aligned and door_centered
@@ -1504,7 +1505,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             self.door_height_reached = True
                         has_reached_height = getattr(self, 'door_height_reached', False)
                         # 对齐后只调整视角，门框偏离时先停步。
-                        dynamic_brake_limit = 120 if push_door_aligned or aspect_ratio >= 0.45 else 400
+                        dynamic_brake_limit = door_center_limit if push_door_aligned or aspect_ratio >= 0.45 else 400
                         if abs(diff_door) > dynamic_brake_limit:
                             if last_action_log != "DOOR_ADJUST":
                                 print(
