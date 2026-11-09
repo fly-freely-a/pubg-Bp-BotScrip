@@ -357,6 +357,8 @@ class MathMixin:
                 if d < min_dist: min_dist = d
             results.append({'target': target, 'coords': (map_x, map_y), 'distance': min_dist})
         jumpable_targets = [r for r in results if r['distance'] <= self.jump_distance_threshold]
+        # 5 号厕所靠近地图边界，有时无法正确跳伞，只在没有其他可选点位时考虑。
+        jumpable_targets = [r for r in jumpable_targets if r['target']['id'] != 5] or jumpable_targets
         best_choice = random.choice(jumpable_targets) if jumpable_targets else min(
             results, key=lambda r: r['distance']
         )
