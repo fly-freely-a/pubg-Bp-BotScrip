@@ -59,7 +59,7 @@ class ExteriorPickupTests(unittest.TestCase):
         namespace, inputs = self.verify()
         self.assertEqual(namespace['bot_state'], 'EXTERIOR_PICKUP')
         self.assertEqual(namespace['exterior_moves'], (('d', 1.0), ('w', 1.0), ('a', 1.0)))
-        self.assertEqual(namespace['exterior_return_moves'], (('d', 1.0), ('s', 3.5), ('a', 0.8)))
+        self.assertEqual(namespace['exterior_return_moves'], (('d', 1.0), ('s', 3.2), ('a', 1.0)))
         self.assertTrue(namespace['first_push_seen'])
         inputs.assert_not_called()
 
@@ -101,8 +101,8 @@ class ExteriorPickupTests(unittest.TestCase):
         self.assertEqual(events[-11:], [
             ('press', 'tab'), ('wait', .5),
             ('d', True), ('wait', 1.0), ('d', False),
-            ('s', True), ('wait', 3.5), ('s', False),
-            ('a', True), ('wait', 0.8), ('a', False),
+            ('s', True), ('wait', 3.2), ('s', False),
+            ('a', True), ('wait', 1.0), ('a', False),
         ])
 
     def test_f_at_threshold_does_not_interact(self):
