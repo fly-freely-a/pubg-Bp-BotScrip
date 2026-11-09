@@ -78,10 +78,10 @@ class ExteriorPickupTests(unittest.TestCase):
                          self=SimpleNamespace(pickup_all_items_in_tab=lambda window:events.append(('pickup',window))),
                          current_window_info=info, print=Mock(), dist_history=[20, 25],
                          exterior_moves=moves, exterior_return_moves=return_moves,
-                         has_aligned_door=True, is_skew_locked=True, last_aspect_ratio=.6)
+                         push_door_aligned=True, is_skew_locked=True, last_aspect_ratio=.6)
         exec(compile(ast.Module(body=self.body('EXTERIOR_PICKUP'), type_ignores=[]), '<pickup>', 'exec'), namespace)
         self.assertEqual(namespace['bot_state'], 'COMPASS_RUSH')
-        self.assertFalse(namespace['has_aligned_door'])
+        self.assertFalse(namespace['push_door_aligned'])
         self.assertFalse(namespace['is_skew_locked'])
         self.assertEqual(namespace['last_aspect_ratio'], 0.0)
         self.assertEqual(namespace['dist_history'], [])
@@ -132,7 +132,7 @@ class ExteriorPickupTests(unittest.TestCase):
         ):
             with self.subTest(seen=seen, aligned=aligned, age=age, after_step=after_step, push_score=push_score):
                 namespace = dict(bot_state='APPROACH_DOOR', current_f_score=.99, keys_pressed={'w': False},
-                                 first_push_seen=seen, push_door_aligned=aligned,
+                                 first_push_seen=seen, push_door_aligned=aligned, door_centered=True,
                                  aligned_after_step=after_step,
                                  global_last_door_time=100-age, last_door_diagnostic=100,
                                  f_tmpl=object(), game_img=object(), door_tmpl=object(),
@@ -141,3 +141,24 @@ class ExteriorPickupTests(unittest.TestCase):
                                                      minMaxLoc=lambda _: (0, push_score, None, None)))
                 exec(module, namespace)
                 self.assertEqual(namespace['bot_state'], expected)
+
+    def test_only_a_complete_distant_door_frame_can_establish_alignment(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'logic/bot.py').read_text())
+        branch = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
+                      and ast.unparse(node.test) == 'valid_door_box'
+                      and 'door_height < near_door_height' in ast.unparse(node))
+        module = compile(ast.Module(body=[branch], type_ignores=[]), '<door-alignment>', 'exec')
+        namespace = dict(bot_state='APPROACH_DOOR', push_door_aligned=False, center_x=960,
+                         h=1080, near_door_height=432, time=SimpleNamespace(time=lambda: 100),
+                         print=Mock())
+
+        for height, y, width, expected in (
+            (1017, 540, 550, False),  # 贴脸门框
+            (300, 150, 150, False),  # 上边缘被裁掉
+            (300, 350, 150, True),   # 远处完整门框
+            (1017, 540, 400, True),  # 贴脸后保留远处的对齐
+        ):
+            with self.subTest(height=height, y=y, width=width):
+                namespace['valid_door_box'] = dict(x=1001.2, y=y, h=height, w=width)
+                exec(module, namespace)
+                self.assertEqual(namespace['push_door_aligned'], expected)

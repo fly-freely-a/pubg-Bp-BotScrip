@@ -885,12 +885,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         is_skew_locked = False
         last_aspect_ratio = 0.0
         ratio_check_time = time.time()
-        has_aligned_door = False
 
         last_space_time = 0.0
         verify_count = 0
         first_push_seen = False
         push_door_aligned = False
+        door_centered = False
         recheck_aligned_after_step = False
 
         last_afk_move_time = time.time()
@@ -940,6 +940,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 h, w = game_img.shape[:2]
                 center_x = w / 2
 
+                if bot_state != "APPROACH_DOOR":
+                    push_door_aligned = False
+                    door_centered = False
+
                 # ==========================================
                 # 全局智能 F 交互拦截器
                 # ==========================================
@@ -947,7 +951,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     ignore_f = False
                     if (current_f_score > 0.72 and door_tmpl is not None
                             and not aligned_after_step
-                            and not (push_door_aligned and time.time() - global_last_door_time < 2.2)):
+                            and not (push_door_aligned and door_centered
+                                     and time.time() - global_last_door_time < 2.2)):
                         push_result = cv2.matchTemplate(game_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
                         ignore_f = cv2.minMaxLoc(push_result)[1] > 0.70
                     # 开门前所有地面导航状态都允许 F 交互，附近物资也会显示 F。
@@ -960,13 +965,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                   'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
                         if time.time() - last_door_diagnostic >= 2.0:
                             print(f"\n🔎 [开门诊断] 状态:{bot_state} F得分:{current_f_score:.4f} 阈值:>0.72 "
-                                  f"门已对齐:{has_aligned_door} 拦截:{ignore_f} 原因:{reason}")
+                                  f"远处已对齐:{push_door_aligned} 最近门框居中:{door_centered} 拦截:{ignore_f} 原因:{reason}")
                             last_door_diagnostic = time.time()
                         # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
                         # if frame_captured_at - last_door_snapshot >= 0.25:
                         #     metadata = dict(state=bot_state, f_score=float(current_f_score),
                         #                     f_threshold=0.72, template_loaded=f_tmpl is not None,
-                        #                     has_aligned_door=bool(has_aligned_door),
+                        #                     has_aligned_door=bool(push_door_aligned),
                         #                     ignore_f=bool(ignore_f), reason=reason,
                         #                     marker_distance=dist, captured_at=frame_captured_at)
                         #     if door_recorder.submit(game_img, metadata):
@@ -1059,12 +1064,19 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 target_focus = valid_door_box if valid_door_box else toilet_box
 
+                near_door_height = h * 0.40
                 if valid_door_box:
                     global_last_door_time = time.time()
-                    push_door_aligned = (
-                        valid_door_box['w'] / valid_door_box['h'] >= 0.45
-                        and abs(valid_door_box['x'] - center_x) <= 120
-                    )
+                    door_centered = abs(valid_door_box['x'] - center_x) <= 120
+                    door_height = valid_door_box['h']
+                    door_y = valid_door_box['y']
+                    if (bot_state == "APPROACH_DOOR" and not push_door_aligned and door_centered
+                            and door_height < near_door_height
+                            and 0 < door_y - door_height / 2
+                            and door_y + door_height / 2 < h
+                            and valid_door_box['w'] / door_height >= 0.45):
+                        push_door_aligned = True
+                        print("   🎯 远处门框已对齐，接下来只转视角和向前移动。")
 
                 if bot_state != "COMPASS_RUSH":
                     compass_turning = False
@@ -1085,7 +1097,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         bot_state = "APPROACH_DOOR" if valid_door_box else "RUNNING"
                         is_skew_locked = False
                         last_aspect_ratio = 0.0
-                        has_aligned_door = False
                         last_action_log = ""
                         global_progress_time = time.time()
                         global_last_seen_time = time.time()
@@ -1216,7 +1227,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         bot_state = "APPROACH_DOOR"
                         is_skew_locked = False
                         last_aspect_ratio = 0.0
-                        has_aligned_door = False
                         last_action_log = ""
                         global_progress_time = time.time()
                         continue
@@ -1346,7 +1356,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         bot_state = "APPROACH_DOOR"
                         is_skew_locked = False
                         last_aspect_ratio = 0.0
-                        has_aligned_door = False
                         last_action_log = ""
                         continue
 
@@ -1449,7 +1458,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 time.sleep(0.5)
                             finally:
                                 stop_all()
-                            recheck_aligned_after_step = push_door_aligned
+                            recheck_aligned_after_step = push_door_aligned and door_centered
                             print("   🚶 门框暂时丢失，已慢进0.5秒并停步，重新检查F提示。")
                             last_action_log = "WAIT_DOOR"
                             global_progress_time = time.time()
@@ -1478,13 +1487,24 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         door_h = valid_door_box['h']  
                         aspect_ratio = valid_door_box['w'] / door_h  
                         
+                        if door_h >= near_door_height and not push_door_aligned:
+                            stop_all()
+                            if last_action_log != "DOOR_BACK_TO_ALIGN":
+                                print("   ↩️ 近处门框无法建立对齐，后退半秒重新观察完整门框。")
+                                last_action_log = "DOOR_BACK_TO_ALIGN"
+                            set_key('s', True)
+                            try:
+                                time.sleep(0.5)
+                            finally:
+                                stop_all()
+                            global_progress_time = time.time()
+                            continue
+
                         if door_h >= 225:
                             self.door_height_reached = True
                         has_reached_height = getattr(self, 'door_height_reached', False)
-                        # 🚨 核心修复1：防暴毙急刹车！
-                        # 如果门在屏幕极度边缘（偏差>180），坚决不准按 W 往前盲走！
-                        # 必须松开所有移动键，专心把头转正！
-                        dynamic_brake_limit = 400 if aspect_ratio < 0.45 else 180
+                        # 对齐后只调整视角，门框偏离时先停步。
+                        dynamic_brake_limit = 120 if push_door_aligned or aspect_ratio >= 0.45 else 400
                         if abs(diff_door) > dynamic_brake_limit:
                             if last_action_log != "DOOR_ADJUST":
                                 print(
@@ -1495,7 +1515,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             global_progress_time = time.time()
                             continue
 
-                        if not has_reached_height and aspect_ratio < 0.45:
+                        if not push_door_aligned and not has_reached_height and aspect_ratio < 0.45:
                             set_key('a', False)
                             set_key('d', False)
                             set_key('shift', False)
@@ -1509,13 +1529,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             global_progress_time = time.time()
                             continue
 
-                        if aspect_ratio >= 0.45:
-                            # if door_h < 500:
-                            #     has_aligned_door = True
-                            if abs(diff_door) <= 200:
-                                has_aligned_door = True
-
-                        if not has_aligned_door:
+                        if not push_door_aligned:
                             set_key('w', False)
                             set_key('shift', False)
                             set_key('ctrl', True)
@@ -1585,7 +1599,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 smooth_glide_mouse(diff_door)
                             global_progress_time = time.time()
                         else:
-                            if door_h >= h * 0.40:
+                            if door_h >= near_door_height:
                                 stop_all()
                                 smooth_glide_mouse(diff_door)
                                 set_key('ctrl', True)
@@ -1744,7 +1758,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             time.sleep(duration)
                         finally:
                             set_key(key, False)
-                    has_aligned_door = False
+                    push_door_aligned = False
+                    door_centered = False
                     is_skew_locked = False
                     last_aspect_ratio = 0.0
                     last_action_log = ""
