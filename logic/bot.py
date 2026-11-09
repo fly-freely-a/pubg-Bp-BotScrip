@@ -869,6 +869,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
         bot_state = "COMPASS_RUSH"
         entered_target_zone = False
+        compass_turning = False
+        last_compass_turn_log = 0.0
 
         last_action_log = ""
         self.last_ai_print = time.time()
@@ -971,11 +973,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         #         last_door_snapshot = frame_captured_at
                     if current_f_score > 0.72 and not ignore_f:
                         print(f"\n✋ 触发物理交互 [F]！(置信度: {current_f_score:.2f}) 立即停步并交互！")
+                        recheck_moving_door_f = bot_state == "APPROACH_DOOR" and keys_pressed['w']
                         stop_all()
                         bot_state = "VERIFY_DOOR"
                         verify_count = 1
                         global_progress_time = time.time()
-                        # 直接用当前帧核验并按 F，不等待下一帧，避免错过路边物资。
+                        # 先用当前帧区分推门和普通 F。
 
                 dist = self.get_radar_distance(game_img)
 
@@ -1063,6 +1066,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         and abs(valid_door_box['x'] - center_x) <= 120
                     )
 
+                if bot_state != "COMPASS_RUSH":
+                    compass_turning = False
+
                 if target_focus:
                     global_last_seen_time = time.time()
                     curr_t = time.time()
@@ -1091,6 +1097,12 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 if bot_state == "COMPASS_RUSH":
                     tx_compass = self.find_target_on_compass(game_img)
+                    can_sprint = not entered_target_zone and dist is not None and dist > 30.0
+                    if not can_sprint and is_sprinting:
+                        set_key('shift', False)
+                        is_sprinting = False
+                        reason = "已进圈" if entered_target_zone else "小地图距离无效"
+                        print(f"   🚶 {reason}，解除疾跑。")
                     if tx_compass is not None:
                         last_valid_tx_compass = tx_compass
                         last_valid_tx_time = time.time()
@@ -1112,21 +1124,25 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         if dist is not None and dist <= 25.0 and abs_diff <= 40:
                             turn_multiplier = min(turn_multiplier, 1)
 
+                        if (entered_target_zone or compass_turning) and abs_diff > 60:
+                            stop_all()
+                            now = time.time()
+                            if not compass_turning or now - last_compass_turn_log >= 3.0:
+                                action = "继续" if compass_turning else "开始"
+                                print(f"[罗盘转向] {action} 偏差:{diff_x:.1f}px，停步转向，等待新画面确认")
+                                last_compass_turn_log = now
+                            compass_turning = True
+                            self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
+                            continue
+                        if compass_turning:
+                            print(f"[罗盘转向] 完成 新画面偏差:{diff_x:.1f}px，恢复前进")
+                            compass_turning = False
                         if abs_diff > 3:
                             self.rotate_mouse_raw(int(diff_x * turn_multiplier), 0)
 
                         if entered_target_zone:
-                            if is_sprinting:
-                                print("   🚶 进圈解除疾跑，静步索敌...")
-                                set_key('shift', False)
-                                is_sprinting = False
-                            if abs(diff_x) > 60:
-                                if keys_pressed['w']:
-                                    print("   🛑 目标在侧后方，停步转身...")
-                                    set_key('w', False)
-                            else:
-                                if not keys_pressed['w']:
-                                    set_key('w', True)
+                            if not keys_pressed['w']:
+                                set_key('w', True)
                             curr_t = time.time()
                             last_scrape = getattr(self, 'last_scrape_time', 0)
                             if curr_t - last_scrape > 3.0: 
@@ -1139,8 +1155,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         else:
                             if not is_sprinting:
                                 set_key('w', True)
-                                set_key('shift', True)
-                                is_sprinting = True
+                                set_key('shift', can_sprint)
+                                is_sprinting = can_sprint
                                 last_w_refresh = time.time()
                             elif time.time() - last_w_refresh > 3.0:
                                 set_key('shift', False)
@@ -1171,6 +1187,14 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     else:
                         time_since_last_seen = time.time() - last_valid_tx_time
 
+                        if compass_turning:
+                            stop_all()
+                            now = time.time()
+                            if now - last_compass_turn_log >= 3.0:
+                                print("[罗盘转向] 暂未找到黄点，保持停步并转动视角搜索")
+                                last_compass_turn_log = now
+                            self.rotate_mouse_raw(30 if entered_target_zone else 120, 0)
+                            continue
                         if time_since_last_seen < 1.0:
                             if entered_target_zone:
                                 set_key('shift', False)
@@ -1178,8 +1202,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 set_key('w', True)
                             elif not is_sprinting:
                                 set_key('w', True)
-                                set_key('shift', True)
-                                is_sprinting = True
+                                set_key('shift', can_sprint)
+                                is_sprinting = can_sprint
                         else:
                             stop_all()
                             sweep_speed = 30 if (dist is not None and dist <= 25.0) else 120
@@ -1561,6 +1585,22 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 smooth_glide_mouse(diff_door)
                             global_progress_time = time.time()
                         else:
+                            if door_h >= h * 0.40:
+                                stop_all()
+                                smooth_glide_mouse(diff_door)
+                                set_key('ctrl', True)
+                                step_started_at = time.perf_counter()
+                                try:
+                                    set_key('w', True)
+                                    time.sleep(max(0.0, 0.3 - (time.perf_counter() - step_started_at)))
+                                finally:
+                                    stop_all()
+                                if last_action_log != "DOOR_SHORT_STEP":
+                                    print("   🚶 已靠近门，改为 Ctrl+W 短步前进0.3秒，停步后检查F提示。")
+                                    last_action_log = "DOOR_SHORT_STEP"
+                                global_progress_time = time.time()
+                                continue
+
                             set_key('a', False)
                             set_key('d', False)
                             set_key('shift', False)
@@ -1603,6 +1643,24 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 time.sleep(0.4)
                                 bot_state = "ITEM_PICKUP"
                             else:
+                                if recheck_moving_door_f:
+                                    # 停步前的画面可能已经过期，重新确认普通 F 提示。
+                                    stopped_img, _ = self.capture_game_screen()
+                                    score_f = 0.0
+                                    if stopped_img is not None:
+                                        res_f = cv2.matchTemplate(stopped_img, f_tmpl, cv2.TM_CCOEFF_NORMED)
+                                        score_f = cv2.minMaxLoc(res_f)[1]
+                                    if score_f <= 0.72:
+                                        print(f"   ⚠️ 停步后普通 F 提示已消失 (F:{score_f:.2f})，继续找门。")
+                                        bot_state = "APPROACH_DOOR"
+                                        continue
+                                    if door_tmpl is not None:
+                                        res_d = cv2.matchTemplate(stopped_img, door_tmpl, cv2.TM_CCOEFF_NORMED)
+                                        score_d = cv2.minMaxLoc(res_d)[1]
+                                        if score_d > 0.70:
+                                            print("   🚪 停步后识别到推门提示，返回开门核验。")
+                                            bot_state = "APPROACH_DOOR"
+                                            continue
                                 push_score = f"{score_d:.4f}" if score_d is not None else "模板未加载"
                                 print(f"   📦 普通 F 交互！(F:{score_f:.2f}, 推门得分:{push_score}, 推门阈值:>0.70) 按 F 后执行外围拾取！")
                                 win32api.keybd_event(0x46, 0, 0, 0)
