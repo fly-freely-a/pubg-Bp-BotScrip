@@ -60,6 +60,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         self.jump_distance_threshold = Config.JUMP_DISTANCE_THRESHOLD
         self.target_points = Config.TARGET_POINTS.copy()
         self.thresholds = Config.THRESHOLDS.copy()
+        self.results_button_clicks = 0
         self.secondary_password = getattr(Config, 'SECONDARY_PASSWORD', "131932")
 
         # 🌟 方案一：懒加载，先把模型置为空，此时不读硬盘！
@@ -341,9 +342,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 print(f"\n   💀 发现脱战按钮 [{btn_name}.png]！执行脱战！")
                 if btn_name in ('next', 'close'):
                     time.sleep(1.0)
-                if btn_name == 'close':
-                    screenshot, _ = self.capture_game_screen()
-                    self.save_diagnostic_screenshot(btn_name, screenshot)
+                    if self.results_button_clicks >= 1:
+                        screenshot, _ = self.capture_game_screen()
+                        self.save_diagnostic_screenshot('results_second', screenshot)
                 win_x, win_y = window_info['screen_pos']
                 bor_x, bor_y = window_info['border']
                 real_w, real_h = window_info['real_client_size']
@@ -355,7 +356,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 win32api.SetCursorPos((win_x + bor_x + real_click_x, win_y + bor_y + real_click_y))
                 time.sleep(0.1)
                 pyautogui.click()
-                if btn_name not in ('next', 'close'):
+                if btn_name in ('next', 'close'):
+                    self.results_button_clicks += 1
+                else:
                     time.sleep(0.5)
                     pyautogui.click()
                 time.sleep(1.5)
@@ -1951,6 +1954,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 now = time.strftime("%H:%M:%S")
 
                 if f_start:
+                    self.results_button_clicks = 0
                     print(f"\n[{now}] 🖱️ 检测到【大厅界面】(得分:{c_start:.2f})，开始【双击】匹配")
                     # 🌟 4. 喂狗：看到开始按钮，说明游戏健康，重置看门狗寿命
                     watchdog_timer = time.time()
