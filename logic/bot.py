@@ -1122,9 +1122,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         last_action_log = ""
                         global_progress_time = time.time()
                         global_last_seen_time = time.time()
-                        if not valid_door_box:
-                            continue
-                        # 用首次看到的门框立即调整，下一帧可能已丢失。
+                        # 用首次看到的门或厕所立即调整，下一帧可能已丢失。
 
                 near_door_height = h * 0.40
                 door_center_limit = 120
