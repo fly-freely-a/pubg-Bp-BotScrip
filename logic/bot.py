@@ -341,6 +341,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 print(f"\n   💀 发现脱战按钮 [{btn_name}.png]！执行脱战！")
                 if btn_name in ('next', 'close'):
                     time.sleep(1.0)
+                if btn_name == 'close':
                     screenshot, _ = self.capture_game_screen()
                     self.save_diagnostic_screenshot(btn_name, screenshot)
                 win_x, win_y = window_info['screen_pos']
