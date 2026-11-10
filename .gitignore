@@ -27,3 +27,5 @@ dist/
 
 # 本地结算截图
 /debug/close/
+/debug/start_match/
+/debug/crouch_inventory/

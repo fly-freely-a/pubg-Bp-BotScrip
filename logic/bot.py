@@ -310,6 +310,23 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             return True
         return False
 
+    def save_diagnostic_screenshot(self, event, game_img):
+        try:
+            if game_img is None:
+                raise OSError("未获取到游戏画面")
+            screenshot_dir = Config.BASE_DIR / 'debug' / event
+            screenshot_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+            screenshot_path = screenshot_dir / f'{event}_{stamp}.png'
+            ok, encoded = cv2.imencode('.png', game_img)
+            if not ok:
+                raise OSError("PNG 编码失败")
+            with screenshot_path.open('xb') as file:
+                file.write(encoded.tobytes())
+            print(f"   📷 [截图] 已保存 {screenshot_path}")
+        except (OSError, cv2.error) as error:
+            print(f"   ⚠️ [截图] {event} 保存失败：{error}")
+
     def handle_endgame(self, game_img, window_info):
         if game_img is None: return False
         h, w = game_img.shape[:2]
@@ -319,19 +336,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             if found:
                 print(f"\n   💀 发现脱战按钮 [{btn_name}.png]！执行脱战！")
                 if btn_name == 'close':
-                    try:
-                        screenshot_dir = Config.BASE_DIR / 'debug' / 'close'
-                        screenshot_dir.mkdir(parents=True, exist_ok=True)
-                        stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-                        screenshot_path = screenshot_dir / f'close_{stamp}.png'
-                        ok, encoded = cv2.imencode('.png', game_img)
-                        if not ok:
-                            raise OSError("PNG 编码失败")
-                        with screenshot_path.open('xb') as file:
-                            file.write(encoded.tobytes())
-                        print(f"   📷 [结算截图] 已保存 {screenshot_path}")
-                    except (OSError, cv2.error) as error:
-                        print(f"   ⚠️ [结算截图] 保存失败：{error}")
+                    self.save_diagnostic_screenshot('close', game_img)
                 win_x, win_y = window_info['screen_pos']
                 bor_x, bor_y = window_info['border']
                 real_w, real_h = window_info['real_client_size']
@@ -1717,6 +1722,13 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     time.sleep(0.8)
                     set_key('a', False)
                     pydirectinput.press('c')
+                    pydirectinput.press('tab')
+                    time.sleep(1.0)
+                    crouch_img, _ = self.capture_game_screen()
+                    self.save_diagnostic_screenshot('crouch_inventory', crouch_img)
+                    pydirectinput.press('tab')
+                    time.sleep(0.5)
+
                     set_key('s', True)
                     time.sleep(0.7)
                     set_key('s', False)
@@ -1923,6 +1935,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 if f_start:
                     print(f"\n[{now}] 🖱️ 检测到【大厅界面】(得分:{c_start:.2f})，开始【双击】匹配")
+                    self.save_diagnostic_screenshot('start_match', game_img)
                     # 🌟 4. 喂狗：看到开始按钮，说明游戏健康，重置看门狗寿命
                     watchdog_timer = time.time()
 

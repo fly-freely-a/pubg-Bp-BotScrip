@@ -37,7 +37,7 @@ class MatchmakingTests(unittest.TestCase):
             running=True, is_paused=False, pubg_hwnd=1, is_waiting_for_jump=False,
             has_marked_this_match=False, toggle_desktop_icons=Mock(),
             bring_pubg_to_front=lambda: True, handle_endgame=Mock(return_value=False),
-            stop_all_movement=Mock())
+            stop_all_movement=Mock(), save_diagnostic_screenshot=Mock())
         def restart():
             controller.running = False
         controller.force_restart_pubg = Mock(side_effect=restart)
@@ -62,6 +62,8 @@ class MatchmakingTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             namespace['run'](controller)
         self.assertNotIn('发生严重错误', output.getvalue())
+        self.assertEqual(namespace['pyautogui'].click.call_count,
+                         controller.save_diagnostic_screenshot.call_count * 2)
         return clock, controller, inputs
 
     def test_wait_under_five_minutes_does_not_restart(self):
