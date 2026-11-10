@@ -1002,7 +1002,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                   'F匹配未超过0.72' if current_f_score <= 0.72 else '允许进入F核验')
                         if time.time() - last_door_diagnostic >= 2.0:
                             print(f"\n🔎 [开门诊断] 状态:{bot_state} F得分:{current_f_score:.4f} 阈值:>0.72 "
-                                  f"远处已对齐:{push_door_aligned} 最近门框居中:{door_centered} 拦截:{ignore_f} 原因:{reason}")
+                                  f"门已对齐:{push_door_aligned} 最近门框居中:{door_centered} 拦截:{ignore_f} 原因:{reason}")
                             last_door_diagnostic = time.time()
                         # # 采样不受两秒日志间隔限制；画面与分数来自同一次截图。
                         # if frame_captured_at - last_door_snapshot >= 0.25:
@@ -1129,15 +1129,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 if valid_door_box:
                     global_last_door_time = time.time()
                     door_centered = abs(valid_door_box['x'] - center_x) <= door_center_limit
-                    door_height = valid_door_box['h']
-                    door_y = valid_door_box['y']
-                    if (bot_state == "APPROACH_DOOR" and not push_door_aligned and door_centered
-                            and door_height < near_door_height
-                            and 0 < door_y - door_height / 2
-                            and door_y + door_height / 2 < h
-                            and valid_door_box['w'] / door_height >= 0.45):
-                        push_door_aligned = True
-                        print("   🎯 远处门框已对齐，接下来只转视角和向前移动。")
 
                 # ==========================================
                 # 🔄 状态机：导航与动作执行
@@ -1519,24 +1510,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                         door_h = valid_door_box['h']  
                         aspect_ratio = valid_door_box['w'] / door_h  
                         
-                        if door_h >= near_door_height and not push_door_aligned:
-                            stop_all()
-                            if last_action_log != "DOOR_BACK_TO_ALIGN":
-                                print("   ↩️ 近处门框无法建立对齐，后退半秒重新观察完整门框。")
-                                last_action_log = "DOOR_BACK_TO_ALIGN"
-                            set_key('s', True)
-                            try:
-                                time.sleep(0.5)
-                            finally:
-                                stop_all()
-                            global_progress_time = time.time()
-                            continue
-
                         if door_h >= 225:
                             self.door_height_reached = True
                         has_reached_height = getattr(self, 'door_height_reached', False)
-                        # 对齐后只调整视角，门框偏离时先停步。
-                        dynamic_brake_limit = door_center_limit if push_door_aligned or aspect_ratio >= 0.45 else 400
+                        dynamic_brake_limit = 400 if aspect_ratio < 0.45 else 180
                         if abs(diff_door) > dynamic_brake_limit:
                             if last_action_log != "DOOR_ADJUST":
                                 print(
@@ -1546,6 +1523,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                             self.rotate_mouse_raw(int(diff_door * 0.8), 0)  # 快速大角度把头甩正
                             global_progress_time = time.time()
                             continue
+
+                        # 通过偏离检查后，沿用 a4388d2 的对齐判定并记住本次接近的结果。
+                        if aspect_ratio >= 0.45:
+                            push_door_aligned = True
 
                         if not push_door_aligned and not has_reached_height and aspect_ratio < 0.45:
                             set_key('a', False)
@@ -1638,11 +1619,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                                 step_started_at = time.perf_counter()
                                 try:
                                     set_key('w', True)
-                                    time.sleep(max(0.0, 0.3 - (time.perf_counter() - step_started_at)))
+                                    time.sleep(max(0.0, 0.5 - (time.perf_counter() - step_started_at)))
                                 finally:
                                     stop_all()
                                 if last_action_log != "DOOR_SHORT_STEP":
-                                    print("   🚶 已靠近门，改为 Ctrl+W 短步前进0.3秒，停步后检查F提示。")
+                                    print("   🚶 已靠近门，改为 Ctrl+W 短步前进0.5秒，停步后检查F提示。")
                                     last_action_log = "DOOR_SHORT_STEP"
                                 global_progress_time = time.time()
                                 continue
