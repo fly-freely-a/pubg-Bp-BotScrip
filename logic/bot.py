@@ -339,21 +339,10 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     continue
             if found:
                 print(f"\n   💀 发现脱战按钮 [{btn_name}.png]！执行脱战！")
-                if btn_name == 'close':
-                    delay = random.uniform(1.0, 3.0)
-                    print(f"   ⏳ 等待 {delay:.1f} 秒后截图并关闭结算页。")
-                    time.sleep(delay)
-                    game_img, window_info = self.capture_game_screen()
-                    if game_img is None or window_info is None:
-                        return False
-                    h, w = game_img.shape[:2]
-                    bottom_half = game_img[int(h * 0.4):h, 0:w]
-                    found, conf, pos = self.find_image(bottom_half, 'close')
-                    found_next, next_conf, _ = self.find_image(bottom_half, 'next')
-                    if not found or (found_next and next_conf >= conf):
-                        print(f"   ⚠️ [结算] 新画面未确认关闭 (关闭:{conf:.2f}, 继续:{next_conf:.2f})，跳过截图和点击。")
-                        return False
-                    self.save_diagnostic_screenshot('close', game_img)
+                if btn_name in ('next', 'close'):
+                    time.sleep(1.0)
+                    screenshot, _ = self.capture_game_screen()
+                    self.save_diagnostic_screenshot(btn_name, screenshot)
                 win_x, win_y = window_info['screen_pos']
                 bor_x, bor_y = window_info['border']
                 real_w, real_h = window_info['real_client_size']
