@@ -1,5 +1,6 @@
 import time
 import os
+from datetime import datetime
 import ctypes  # 🚀 新增：用于调用 Windows 底层硬件 API
 
 # ===================================================================
@@ -317,6 +318,20 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
             found, conf, pos = self.find_image(bottom_half, btn_name)
             if found:
                 print(f"\n   💀 发现脱战按钮 [{btn_name}.png]！执行脱战！")
+                if btn_name == 'close':
+                    try:
+                        screenshot_dir = Config.BASE_DIR / 'debug' / 'close'
+                        screenshot_dir.mkdir(parents=True, exist_ok=True)
+                        stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                        screenshot_path = screenshot_dir / f'close_{stamp}.png'
+                        ok, encoded = cv2.imencode('.png', game_img)
+                        if not ok:
+                            raise OSError("PNG 编码失败")
+                        with screenshot_path.open('xb') as file:
+                            file.write(encoded.tobytes())
+                        print(f"   📷 [结算截图] 已保存 {screenshot_path}")
+                    except (OSError, cv2.error) as error:
+                        print(f"   ⚠️ [结算截图] 保存失败：{error}")
                 win_x, win_y = window_info['screen_pos']
                 bor_x, bor_y = window_info['border']
                 real_w, real_h = window_info['real_client_size']

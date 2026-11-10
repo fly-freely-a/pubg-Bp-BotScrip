@@ -24,3 +24,6 @@ dist/
 
 # 本地开门诊断画面
 /debug/door_interaction/
+
+# 本地结算截图
+/debug/close/
