@@ -30,10 +30,11 @@ class CompassTurningTests(unittest.TestCase):
             keys[key] = pressed
         controller = SimpleNamespace(find_target_on_compass=lambda image: target_x,
                                      rotate_mouse_raw=lambda *args: events.append(('turn', args)),
-                                     last_scrape_time=100)
+                                     last_scrape_time=100, yolo_model=object())
         inputs = SimpleNamespace(press=Mock())
         namespace = dict(bot_state='COMPASS_RUSH', self=controller, game_img=object(),
-                         time=SimpleNamespace(time=lambda: 100), center_x=960, dist=dist,
+                         time=SimpleNamespace(time=lambda: 100, monotonic=lambda: 100), center_x=960, dist=dist,
+                         last_compass_diagnostic=0.0, yolo_candidate_count=None,
                          entered_target_zone=in_zone,
                          keys_pressed=keys, stop_all=stop, set_key=set_key,
                          last_valid_tx_time=99.5, is_sprinting=sprinting, last_w_refresh=100,

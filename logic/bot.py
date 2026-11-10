@@ -828,6 +828,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         print(f"🔎 [开门诊断] F模板已加载:{f_tmpl is not None} 路径:{f_path} "
               f"尺寸:{f_tmpl.shape[:2] if f_tmpl is not None else None}")
         last_door_diagnostic = 0.0
+        last_compass_diagnostic = float("-inf")
         # last_door_snapshot = 0.0
         # diagnostic_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
         #                               'debug', 'door_interaction')
@@ -1049,9 +1050,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                 # YOLO 视觉逻辑
                 # ==========================================
                 toilet_box, valid_door_box = None, None
+                yolo_candidate_count = None
 
                 if self.yolo_model is not None and entered_target_zone and bot_state not in ["VERIFY_DOOR", "ITEM_PICKUP", "EXTERIOR_PICKUP", "AFK"]:
                     results = self.predict_ground_targets(game_img)
+                    yolo_candidate_count = sum(len(result.boxes) for result in results)
                     toilet_boxes, door_boxes = [], []
 
                     for r in results:
@@ -1126,6 +1129,18 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 if bot_state == "COMPASS_RUSH":
                     tx_compass = self.find_target_on_compass(game_img)
+                    now = time.monotonic()
+                    if now - last_compass_diagnostic >= 4.0:
+                        distance_text = f"{dist:.1f}px" if dist is not None else "无效"
+                        compass_text = f"{tx_compass - center_x:+.1f}px" if tx_compass is not None else "未找到"
+                        if yolo_candidate_count is None:
+                            vision_text = "未运行" if self.yolo_model is not None else "模型未加载"
+                        else:
+                            vision_text = f"候选{yolo_candidate_count}，有效目标0"
+                        active_keys = '+'.join(key.upper() for key, held in keys_pressed.items() if held) or "无"
+                        print(f"[罗盘诊断] 距标点:{distance_text} 已进圈:{entered_target_zone} "
+                              f"黄点偏差:{compass_text} YOLO:{vision_text} 当前按键:{active_keys}")
+                        last_compass_diagnostic = now
                     can_sprint = not entered_target_zone and dist is not None and dist > 30.0
                     if not can_sprint and is_sprinting:
                         set_key('shift', False)
