@@ -1951,7 +1951,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                 if f_start:
                     print(f"\n[{now}] 🖱️ 检测到【大厅界面】(得分:{c_start:.2f})，开始【双击】匹配")
-                    self.save_diagnostic_screenshot('start_match', game_img)
                     # 🌟 4. 喂狗：看到开始按钮，说明游戏健康，重置看门狗寿命
                     watchdog_timer = time.time()
 
@@ -1974,6 +1973,8 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     pyautogui.click();
                     if map_wait_started is None:
                         map_wait_started = time.time()
+                        screenshot, _ = self.capture_game_screen()
+                        self.save_diagnostic_screenshot('start_match', screenshot)
                     time.sleep(5)
 
                 elif f_load:

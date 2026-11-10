@@ -42,10 +42,13 @@ class MatchmakingTests(unittest.TestCase):
             controller.running = False
         controller.force_restart_pubg = Mock(side_effect=restart)
         info = dict(screen_pos=(0, 0), border=(0, 0), real_client_size=(1920, 1080), map_offset=(435, 15))
+        captures = []
         def capture():
             if clock.now > duration:
                 controller.running = False
-            return SimpleNamespaceFrame(), info
+            frame = SimpleNamespaceFrame()
+            captures.append((frame, namespace['pyautogui'].click.call_count, clock.now))
+            return frame, info
         controller.capture_game_screen = capture
         def find_image(image, name):
             if name == 'start_btn' and (clock.now < 1 or start_stays_visible):
@@ -62,8 +65,14 @@ class MatchmakingTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             namespace['run'](controller)
         self.assertNotIn('发生严重错误', output.getvalue())
-        self.assertEqual(namespace['pyautogui'].click.call_count,
-                         controller.save_diagnostic_screenshot.call_count * 2)
+        initial_frame, first_click_count, initial_time = captures[0]
+        screenshot, screenshot_click_count, screenshot_time = captures[1]
+        self.assertIsNot(screenshot, initial_frame)
+        self.assertEqual((first_click_count, screenshot_click_count), (0, 2))
+        self.assertAlmostEqual(screenshot_time - initial_time, 0.6)
+        controller.save_diagnostic_screenshot.assert_called_once_with('start_match', screenshot)
+        if start_stays_visible:
+            self.assertGreater(namespace['pyautogui'].click.call_count, 2)
         return clock, controller, inputs
 
     def test_wait_under_five_minutes_does_not_restart(self):
