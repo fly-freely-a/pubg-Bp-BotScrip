@@ -314,7 +314,7 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
         try:
             if game_img is None:
                 raise OSError("未获取到游戏画面")
-            screenshot_dir = Config.BASE_DIR / 'debug' / event
+            screenshot_dir = Config.BASE_DIR / 'debug' / 'match_screenshots'
             screenshot_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             screenshot_path = screenshot_dir / f'{event}_{stamp}.png'
