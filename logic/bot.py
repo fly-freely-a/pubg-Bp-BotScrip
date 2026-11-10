@@ -1737,13 +1737,6 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     time.sleep(0.8)
                     set_key('a', False)
                     pydirectinput.press('c')
-                    pydirectinput.press('tab')
-                    time.sleep(1.0)
-                    crouch_img, _ = self.capture_game_screen()
-                    self.save_diagnostic_screenshot('crouch_inventory', crouch_img)
-                    pydirectinput.press('tab')
-                    time.sleep(0.5)
-
                     set_key('s', True)
                     time.sleep(0.7)
                     set_key('s', False)
@@ -1754,6 +1747,9 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
 
                     if hasattr(self, 'pickup_all_items_in_tab'):
                         self.pickup_all_items_in_tab(current_window_info)
+
+                    inventory_img, _ = self.capture_game_screen()
+                    self.save_diagnostic_screenshot('crouch_inventory', inventory_img)
 
                     afk_inventory_open = True
                     next_health_check = time.monotonic()
