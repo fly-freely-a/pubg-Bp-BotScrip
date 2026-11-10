@@ -363,10 +363,11 @@ class PUBGSmartMarkerV9(WindowMixin, VisionMixin, MathMixin, ActionMixin):
                     real_click_x = int(pos[0] * (real_w / 1920.0))
                 real_click_y = int((pos[1] + int(h * 0.4)) * (real_h / 1080.0))
                 win32api.SetCursorPos((win_x + bor_x + real_click_x, win_y + bor_y + real_click_y))
-                time.sleep(0.1);
-                pyautogui.click();
-                time.sleep(0.5);
-                pyautogui.click();
+                time.sleep(0.1)
+                pyautogui.click()
+                if btn_name not in ('next', 'close'):
+                    time.sleep(0.5)
+                    pyautogui.click()
                 time.sleep(1.5)
                 return True
         return False
